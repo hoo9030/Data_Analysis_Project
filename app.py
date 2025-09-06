@@ -11,6 +11,11 @@ from src.viz_ops import (
     plot_line,
     plot_correlation_heatmap,
     plot_feature_importance,
+    plot_scatter_matrix,
+    plot_density_contour,
+    plot_density_heatmap,
+    plot_histogram_facet,
+    plot_violin_facet,
 )
 from src.model_ops import (
     infer_problem_type,
@@ -156,6 +161,71 @@ def show_visualize(df: pd.DataFrame):
         color = st.selectbox("색상(옵션)", [None] + cat_cols)
         fig = plot_line(df.sort_values(by=x), x=x, y=y, color=color)
         st.plotly_chart(fig, use_container_width=True)
+
+    # Advanced visualization
+    with st.expander("고급 시각화", expanded=False):
+        adv_type = st.selectbox(
+            "종류",
+            ["산점도 행렬", "2D 밀도(컨투어)", "2D 밀도(히트맵)", "페이싯 히스토그램", "페이싯 바이올린"],
+            index=0,
+        )
+
+        if adv_type == "산점도 행렬":
+            if len(num_cols) < 2:
+                st.info("수치형 컬럼이 2개 이상 필요합니다.")
+            else:
+                dims = st.multiselect("수치형 컬럼 선택", num_cols, default=num_cols[: min(4, len(num_cols))])
+                color = st.selectbox("색상(옵션)", [None] + cat_cols)
+                sample_n = st.slider("샘플 수(0=전체)", 0, min(len(df), 5000), min(len(df), 1500))
+                dfx = df.sample(n=sample_n, random_state=42) if sample_n and sample_n < len(df) else df
+                if len(dims) >= 2:
+                    fig = plot_scatter_matrix(dfx, dimensions=dims, color=color)
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("2개 이상의 수치형 컬럼을 선택하세요.")
+
+        elif adv_type == "2D 밀도(컨투어)":
+            if len(num_cols) < 2:
+                st.info("수치형 컬럼이 2개 이상 필요합니다.")
+            else:
+                x = st.selectbox("X", num_cols)
+                y = st.selectbox("Y", [c for c in num_cols if c != x])
+                color = st.selectbox("색상(옵션)", [None] + cat_cols)
+                fig = plot_density_contour(df, x=x, y=y, color=color)
+                st.plotly_chart(fig, use_container_width=True)
+
+        elif adv_type == "2D 밀도(히트맵)":
+            if len(num_cols) < 2:
+                st.info("수치형 컬럼이 2개 이상 필요합니다.")
+            else:
+                x = st.selectbox("X", num_cols)
+                y = st.selectbox("Y", [c for c in num_cols if c != x])
+                nbx = st.slider("X 빈 개수", 5, 100, 30)
+                nby = st.slider("Y 빈 개수", 5, 100, 30)
+                fig = plot_density_heatmap(df, x=x, y=y, nbinsx=nbx, nbinsy=nby)
+                st.plotly_chart(fig, use_container_width=True)
+
+        elif adv_type == "페이싯 히스토그램":
+            x_all = df.columns.tolist()
+            x = st.selectbox("X", x_all)
+            facet_row = st.selectbox("Facet 행", [None] + cat_cols)
+            facet_col = st.selectbox("Facet 열", [None] + cat_cols)
+            color = st.selectbox("색상(옵션)", [None] + cat_cols)
+            bins = st.slider("빈 개수", 5, 100, 30)
+            fig = plot_histogram_facet(df, x=x, facet_row=facet_row, facet_col=facet_col, color=color, nbins=bins)
+            st.plotly_chart(fig, use_container_width=True)
+
+        elif adv_type == "페이싯 바이올린":
+            if not num_cols:
+                st.info("수치형 컬럼이 필요합니다.")
+            else:
+                y = st.selectbox("Y(수치형)", num_cols)
+                x = st.selectbox("X(범주, 옵션)", [None] + cat_cols)
+                facet_row = st.selectbox("Facet 행", [None] + cat_cols)
+                facet_col = st.selectbox("Facet 열", [None] + cat_cols)
+                color = st.selectbox("색상(옵션)", [None] + cat_cols)
+                fig = plot_violin_facet(df, y=y, x=x if x else None, facet_row=facet_row, facet_col=facet_col, color=color)
+                st.plotly_chart(fig, use_container_width=True)
 
 
 def show_transform(df: pd.DataFrame):
