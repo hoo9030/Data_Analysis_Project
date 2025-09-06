@@ -18,6 +18,7 @@ from src.model_ops import (
     serialize_model_to_bytes,
     tune_and_evaluate,
     extract_feature_importances,
+    align_columns_for_inference,
 )
 
 
@@ -328,6 +329,80 @@ def show_model(df: pd.DataFrame):
         )
     except Exception as e:
         st.warning(f"모델 직렬화 실패: {e}")
+
+    st.markdown("#### 예측 / 내보내기")
+    pred_source = st.radio("예측 데이터", ["현재 데이터셋", "CSV 업로드"], index=0, horizontal=True)
+    pred_col = st.text_input("예측 컬럼명", value="prediction")
+    include_original = st.checkbox("원본 컬럼 포함", value=True)
+    include_proba = False
+    model_step = getattr(model, "named_steps", {}).get("model", None)
+    if model_step is not None and hasattr(model_step, "predict_proba"):
+        include_proba = st.checkbox("분류 확률 포함(predict_proba)", value=False)
+
+    pred_df = None
+    if pred_source == "현재 데이터셋":
+        Xf = df.drop(columns=[target]) if target in df.columns else df.copy()
+        Xf = align_columns_for_inference(model, Xf)
+        try:
+            yhat = model.predict(Xf)
+            out = df.copy() if include_original else Xf.copy()
+            out[pred_col] = yhat
+            if include_proba and hasattr(model_step, "predict_proba"):
+                try:
+                    proba = model_step.predict_proba(model.named_steps["preprocess"].transform(Xf))
+                    classes = getattr(model_step, "classes_", None)
+                    if classes is None:
+                        classes = list(range(proba.shape[1]))
+                    for i, cls in enumerate(classes):
+                        out[f"proba_{cls}"] = proba[:, i]
+                except Exception:
+                    st.info("확률 계산을 진행할 수 없습니다.")
+            pred_df = out
+        except Exception as e:
+            st.error(f"예측 실패: {e}")
+    else:
+        up = st.file_uploader("예측용 CSV 업로드", type=["csv"])
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            sep = st.text_input("구분자", value=",")
+        with c2:
+            decimal = st.text_input("소수점", value=".")
+        with c3:
+            encoding = st.text_input("인코딩", value="utf-8")
+        drop_target = st.checkbox("업로드 데이터에 타깃 컬럼이 있으면 삭제", value=True)
+        if up is not None:
+            udf = load_csv(up, sep=sep or ",", decimal=decimal or ".", encoding=encoding or "utf-8")
+            if drop_target and target in udf.columns:
+                udf = udf.drop(columns=[target])
+            Xf = align_columns_for_inference(model, udf)
+            try:
+                yhat = model.predict(Xf)
+                out = udf.copy() if include_original else Xf.copy()
+                out[pred_col] = yhat
+                if include_proba and hasattr(model_step, "predict_proba"):
+                    try:
+                        proba = model_step.predict_proba(model.named_steps["preprocess"].transform(Xf))
+                        classes = getattr(model_step, "classes_", None)
+                        if classes is None:
+                            classes = list(range(proba.shape[1]))
+                        for i, cls in enumerate(classes):
+                            out[f"proba_{cls}"] = proba[:, i]
+                    except Exception:
+                        st.info("확률 계산을 진행할 수 없습니다.")
+                pred_df = out
+            except Exception as e:
+                st.error(f"예측 실패: {e}")
+
+    if pred_df is not None and not pred_df.empty:
+        with st.expander("예측 결과 미리보기", expanded=True):
+            st.dataframe(pred_df.head(1000), use_container_width=True)
+        csv_pred = pred_df.to_csv(index=False).encode("utf-8-sig")
+        st.download_button(
+            label="예측 결과 CSV 다운로드",
+            data=csv_pred,
+            file_name="predictions.csv",
+            mime="text/csv",
+        )
 
 
 def main():

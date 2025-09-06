@@ -382,3 +382,37 @@ def extract_feature_importances(pipe: Pipeline) -> pd.DataFrame:
     # Sort by absolute importance desc
     df_imp = df_imp.sort_values("importance", ascending=False).reset_index(drop=True)
     return df_imp
+
+
+def get_expected_columns(pipe: Pipeline) -> Tuple[List[str], List[str]]:
+    """Return (num_cols, cat_cols) that the preprocessor expects."""
+    pre = pipe.named_steps.get("preprocess")
+    num_cols: List[str] = []
+    cat_cols: List[str] = []
+    try:
+        for name, trans, cols in pre.transformers_:
+            if name == "num":
+                num_cols = list(cols)
+            elif name == "cat":
+                cat_cols = list(cols)
+    except Exception:
+        pass
+    return num_cols, cat_cols
+
+
+def align_columns_for_inference(pipe: Pipeline, X: pd.DataFrame) -> pd.DataFrame:
+    """Ensure X has all columns expected by the pipeline's preprocessor.
+
+    Adds missing columns with NaN so imputers can handle them, and reorders/filters
+    columns to expected set.
+    """
+    num_cols, cat_cols = get_expected_columns(pipe)
+    expected: List[str] = list(dict.fromkeys((num_cols or []) + (cat_cols or [])))
+    if not expected:
+        return X
+    X2 = X.copy()
+    for c in expected:
+        if c not in X2.columns:
+            X2[c] = np.nan
+    # Keep only expected columns in stable order
+    return X2[expected]
