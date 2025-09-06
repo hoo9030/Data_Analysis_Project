@@ -14,3 +14,28 @@ venv.*/
 __pycache__/
 *.py[cod]
 *$py.class
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Test and type caches
+.pytest_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Secrets and environment
+.env
+.streamlit/secrets.toml
