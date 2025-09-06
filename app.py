@@ -11,7 +11,12 @@ from src.viz_ops import (
     plot_line,
     plot_correlation_heatmap,
 )
-from src.model_ops import infer_problem_type, train_and_evaluate, serialize_model_to_bytes
+from src.model_ops import (
+    infer_problem_type,
+    train_and_evaluate,
+    serialize_model_to_bytes,
+    tune_and_evaluate,
+)
 
 
 st.set_page_config(
@@ -208,6 +213,30 @@ def show_model(df: pd.DataFrame):
         with colp2:
             random_state = st.number_input("랜덤 시드", value=42, step=1)
 
+        st.markdown("---")
+        use_tuning = st.checkbox("하이퍼파라미터 튜닝 사용", value=True)
+        if use_tuning:
+            search_type = st.selectbox("탐색 방법", ["Grid", "Random"], index=1)
+            cv_folds = st.number_input("교차검증 폴드(CV)", value=5, min_value=2, max_value=10, step=1)
+            # Scoring options
+            if problem == "regression":
+                scoring_options = {
+                    "Auto (RMSE)": "neg_root_mean_squared_error",
+                    "R2": "r2",
+                    "MAE": "neg_mean_absolute_error",
+                }
+            else:
+                # If only one class present, F1/ROC AUC may fail; accuracy is safest
+                scoring_options = {
+                    "Auto (Accuracy)": "accuracy",
+                    "F1(Weighted)": "f1_weighted",
+                }
+            scoring_label = st.selectbox("스코어링", list(scoring_options.keys()), index=0)
+            scoring = scoring_options[scoring_label]
+            n_iter = None
+            if search_type == "Random":
+                n_iter = st.number_input("Random Search 반복 수", value=25, min_value=5, max_value=200, step=5)
+
         submitted = st.form_submit_button("학습 실행")
 
     if not submitted:
@@ -216,10 +245,29 @@ def show_model(df: pd.DataFrame):
 
     with st.spinner("학습 중..."):
         try:
-            model, metrics, figs = train_and_evaluate(
-                df, target=target, problem=problem, model_name=model_name,
-                test_size=float(test_size), random_state=int(random_state)
-            )
+            if use_tuning:
+                model, metrics, figs, cv_results, best_params = tune_and_evaluate(
+                    df,
+                    target=target,
+                    problem=problem,
+                    model_name=model_name,
+                    search="random" if search_type == "Random" else "grid",
+                    scoring=scoring,
+                    cv=int(cv_folds),
+                    n_iter=int(n_iter) if n_iter else 25,
+                    test_size=float(test_size),
+                    random_state=int(random_state),
+                )
+            else:
+                model, metrics, figs = train_and_evaluate(
+                    df,
+                    target=target,
+                    problem=problem,
+                    model_name=model_name,
+                    test_size=float(test_size),
+                    random_state=int(random_state),
+                )
+                cv_results, best_params = None, None
         except Exception as e:
             st.error(f"학습 실패: {e}")
             return
@@ -239,6 +287,19 @@ def show_model(df: pd.DataFrame):
             st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("표시할 차트가 없습니다.")
+
+    if use_tuning and cv_results is not None:
+        st.markdown("#### 교차검증 결과")
+        colb1, colb2 = st.columns(2)
+        with colb1:
+            st.write("Best Params:")
+            st.json(best_params)
+        with colb2:
+            best_score = cv_results.iloc[0]["mean_test_score"] if "mean_test_score" in cv_results.columns else None
+            if best_score is not None:
+                st.metric("Best CV Score", f"{best_score:.5f}")
+        with st.expander("CV Results Table", expanded=False):
+            st.dataframe(cv_results, use_container_width=True)
 
     st.markdown("#### 모델 다운로드")
     try:

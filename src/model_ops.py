@@ -22,6 +22,7 @@ from sklearn.metrics import (
 )
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 
 
 ProblemType = Literal["regression", "classification"]
@@ -185,3 +186,121 @@ def serialize_model_to_bytes(model: Pipeline) -> bytes:
     buf.seek(0)
     return buf.read()
 
+
+def get_param_grid(problem: ProblemType, model_name: str) -> Dict[str, list]:
+    if problem == "regression":
+        if model_name == "Linear Regression":
+            return {
+                "model__fit_intercept": [True, False],
+            }
+        elif model_name == "Random Forest":
+            return {
+                "model__n_estimators": [100, 200, 400],
+                "model__max_depth": [None, 5, 10, 20],
+                "model__min_samples_split": [2, 5, 10],
+                "model__min_samples_leaf": [1, 2, 4],
+                "model__max_features": ["auto", "sqrt", 0.5],
+            }
+    else:
+        if model_name == "Logistic Regression":
+            return {
+                "model__C": [0.01, 0.1, 1.0, 10.0],
+                "model__class_weight": [None, "balanced"],
+            }
+        elif model_name == "Random Forest":
+            return {
+                "model__n_estimators": [100, 200, 400],
+                "model__max_depth": [None, 5, 10, 20],
+                "model__min_samples_split": [2, 5, 10],
+                "model__min_samples_leaf": [1, 2, 4],
+                "model__max_features": ["auto", "sqrt", "log2"],
+                "model__class_weight": [None, "balanced"],
+            }
+    raise ValueError("Unsupported model/problem for param grid")
+
+
+def tune_and_evaluate(
+    df: pd.DataFrame,
+    target: str,
+    problem: ProblemType,
+    model_name: str,
+    search: Literal["grid", "random"] = "grid",
+    scoring: str | None = None,
+    cv: int = 5,
+    n_iter: int = 25,
+    test_size: float = 0.2,
+    random_state: int = 42,
+) -> Tuple[Pipeline, Dict[str, float], Dict[str, Any], pd.DataFrame, Dict[str, Any]]:
+    """Run CV-based hyperparameter tuning, then evaluate on a hold-out split.
+
+    Returns: (best_model, metrics, figs, cv_results_df, best_params)
+    """
+    X = df.drop(columns=[target])
+    y = df[target]
+
+    num_cols, cat_cols = split_features(df, target)
+    base = build_pipeline(problem, num_cols, cat_cols, model_name)
+    param_grid = get_param_grid(problem, model_name)
+
+    # CV Search
+    common_kwargs = dict(scoring=scoring, cv=cv, n_jobs=-1, refit=True, return_train_score=True)
+    if search == "grid":
+        searcher = GridSearchCV(base, param_grid=param_grid, **{k: v for k, v in common_kwargs.items() if k != "n_jobs"} , n_jobs=-1)
+    else:
+        searcher = RandomizedSearchCV(base, param_distributions=param_grid, n_iter=n_iter, **common_kwargs)
+
+    # Hold-out split for final evaluation
+    stratify = y if problem == "classification" and y.nunique() > 1 else None
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=test_size, random_state=random_state, stratify=stratify
+    )
+
+    searcher.fit(X_train, y_train)
+    best_model: Pipeline = searcher.best_estimator_
+    y_pred = best_model.predict(X_test)
+
+    figs: Dict[str, Any] = {}
+    if problem == "regression":
+        metrics = evaluate_regression(y_test.values, y_pred)
+        try:
+            import plotly.express as px
+            dfp = pd.DataFrame({"y_true": y_test, "y_pred": y_pred})
+            fig_scatter = px.scatter(dfp, x="y_true", y="y_pred", opacity=0.7)
+            min_v = float(np.nanmin([dfp["y_true"].min(), dfp["y_pred"].min()]))
+            max_v = float(np.nanmax([dfp["y_true"].max(), dfp["y_pred"].max()]))
+            fig_scatter.add_shape(type="line", x0=min_v, y0=min_v, x1=max_v, y1=max_v, line=dict(color="#888", dash="dash"))
+            fig_scatter.update_layout(margin=dict(l=10, r=10, t=30, b=10))
+            figs["pred_vs_actual"] = fig_scatter
+
+            res = dfp["y_pred"] - dfp["y_true"]
+            fig_res = px.histogram(res, nbins=40, opacity=0.85)
+            fig_res.update_layout(margin=dict(l=10, r=10, t=30, b=10))
+            figs["residuals_hist"] = fig_res
+        except Exception:
+            pass
+    else:
+        metrics = evaluate_classification(y_test.values, y_pred)
+        try:
+            import plotly.express as px
+            labels = np.unique(np.concatenate([np.array(y_test), np.array(y_pred)]))
+            cm = confusion_matrix(y_test, y_pred, labels=labels)
+            fig_cm = px.imshow(cm, x=labels, y=labels, text_auto=True, color_continuous_scale="Blues", aspect="auto")
+            fig_cm.update_layout(xaxis_title="Predicted", yaxis_title="Actual", margin=dict(l=10, r=10, t=30, b=10))
+            figs["confusion_matrix"] = fig_cm
+        except Exception:
+            pass
+
+    # CV results as DataFrame
+    results = pd.DataFrame(searcher.cv_results_)
+    cols = [
+        "rank_test_score",
+        "mean_test_score",
+        "std_test_score",
+        "mean_train_score",
+        "std_train_score",
+        "mean_fit_time",
+        "params",
+    ]
+    results = results[[c for c in cols if c in results.columns]].sort_values("rank_test_score")
+
+    return best_model, metrics, figs, results, searcher.best_params_
