@@ -42,7 +42,7 @@ streamlit run app.py
 
 ## 구조
 ```
-Data_Analysis_Project/
+Data_Analysis_Studio/
 ├─ app.py                # Streamlit 메인 앱
 ├─ requirements.txt      # 의존성 목록
 ├─ README.md             # 사용 안내
