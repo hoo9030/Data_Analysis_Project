@@ -26,10 +26,11 @@ from src.model_ops import (
     align_columns_for_inference,
 )
 from src.preprocess_ops import iqr_filter, remove_duplicates
+from src.settings import APP_NAME, TAGLINE
 
 
 st.set_page_config(
-    page_title="Data Analysis Starter",
+    page_title=APP_NAME,
     page_icon="📊",
     layout="wide",
 )
