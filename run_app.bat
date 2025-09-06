@@ -1,41 +1,54 @@
 @echo off
 setlocal enableextensions enabledelayedexpansion
-REM UTF-8 콘솔 (한글 출력 개선)
-chcp 65001 >nul 2>&1
 
-REM 프로젝트 루트로 이동 (배치파일 위치 기준)
+REM Move to project root (script directory)
 set "ROOT=%~dp0"
 cd /d "%ROOT%"
 
 set "VENV=.venv"
 set "PYEXE=%VENV%\Scripts\python.exe"
 
-REM 가상환경이 없으면 생성
+REM Create venv if missing
 if not exist "%PYEXE%" (
-  echo [INFO] 가상환경 생성 중...
+  echo [INFO] Creating virtual environment...
   where py >nul 2>&1
   if %ERRORLEVEL%==0 (
     py -m venv "%VENV%"
   ) else (
-    python -m venv "%VENV%"
+    where python >nul 2>&1
+    if %ERRORLEVEL%==0 (
+      python -m venv "%VENV%"
+    ) else (
+      echo [ERROR] Python not found on PATH. Install Python or add it to PATH.
+      pause
+      exit /b 1
+    )
   )
 )
 
 if not exist "%PYEXE%" (
-  echo [ERROR] 가상환경 생성 실패. Python 설치를 확인하세요.
+  echo [ERROR] Failed to create virtual environment. Please verify Python installation.
   pause
   exit /b 1
 )
 
-REM pip 업데이트 및 의존성 설치
-"%PYEXE%" -m pip install --upgrade pip
-if exist requirements.txt (
-  echo [INFO] 의존성 설치/확인 중...
-  "%PYEXE%" -m pip install -r requirements.txt
+REM Optionally skip installs for quick dry-run: set SKIP_INSTALL=1
+if defined SKIP_INSTALL (
+  echo [INFO] SKIP_INSTALL detected. Skipping dependency installation.
+) else (
+  echo [INFO] Upgrading pip and installing requirements...
+  "%PYEXE%" -m pip install --upgrade pip
+  if exist requirements.txt (
+    "%PYEXE%" -m pip install -r requirements.txt
+  )
 )
 
-REM Streamlit 앱 실행
-echo [INFO] Streamlit 앱 실행 중...
-"%PYEXE%" -m streamlit run app.py
+REM Launch Streamlit app (can skip with SKIP_RUN=1)
+if defined SKIP_RUN (
+  echo [INFO] SKIP_RUN detected. Not launching Streamlit.
+) else (
+  echo [INFO] Launching Streamlit...
+  "%PYEXE%" -m streamlit run app.py
+)
 
 endlocal
