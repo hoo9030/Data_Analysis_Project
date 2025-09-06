@@ -4,9 +4,11 @@ import pandas as pd
 from src.data_ops import load_csv, generate_sample_data
 from src.profile_ops import generate_profile_html
 from src.settings import APP_NAME
+from src.ui import render_header
 
 
 st.set_page_config(page_title=f"{APP_NAME} | Profiling", page_icon="📑", layout="wide")
+render_header(icon="📑", show_tagline=False)
 
 
 def sidebar_data_source():

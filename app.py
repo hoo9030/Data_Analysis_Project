@@ -28,9 +28,11 @@ from src.model_ops import (
 )
 from src.preprocess_ops import iqr_filter, remove_duplicates
 from src.settings import APP_NAME, TAGLINE
+from src.ui import render_header
 
 
 st.set_page_config(page_title=APP_NAME, page_icon="📊", layout="wide")
+render_header(icon="📊", show_tagline=True)
 
 
 def sidebar_data_source():

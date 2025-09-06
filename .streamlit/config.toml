@@ -1,6 +1,14 @@
 [theme]
-primaryColor = "#4F46E5"
-backgroundColor = "#0B1220"
-secondaryBackgroundColor = "#111827"
-textColor = "#E5E7EB"
+# Studio default theme — light, clean, readable
+primaryColor = "#4F46E5"         # Indigo 600
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F6F8FC"
+textColor = "#111827"            # Gray 900
 font = "sans serif"
+
+[client]
+toolbarMode = "minimal"
+
+[server]
+headless = true
+
