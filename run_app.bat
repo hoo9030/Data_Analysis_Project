@@ -5,6 +5,14 @@ REM Move to project root (script directory)
 set "ROOT=%~dp0"
 cd /d "%ROOT%"
 
+REM Derive APP_NAME from folder name if not provided
+for %%I in (.) do set "APP_NAME_FALLBACK=%%~nxI"
+if not defined APP_NAME (
+  set "APP_NAME=!APP_NAME_FALLBACK!"
+  set "APP_NAME=!APP_NAME:_= !"
+  set "APP_NAME=!APP_NAME:-= !"
+)
+
 set "VENV=.venv"
 set "PYEXE=%VENV%\Scripts\python.exe"
 

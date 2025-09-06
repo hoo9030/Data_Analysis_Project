@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+
 from src.data_ops import generate_sample_data, load_csv, detect_column_types
 from src.eda_ops import basic_info, missing_summary, numeric_summary, correlation_matrix
 from src.viz_ops import (
@@ -29,11 +30,7 @@ from src.preprocess_ops import iqr_filter, remove_duplicates
 from src.settings import APP_NAME, TAGLINE
 
 
-st.set_page_config(
-    page_title=APP_NAME,
-    page_icon="📊",
-    layout="wide",
-)
+st.set_page_config(page_title=APP_NAME, page_icon="📊", layout="wide")
 
 
 def sidebar_data_source():
@@ -258,11 +255,6 @@ def show_transform(df: pd.DataFrame):
     query_str = st.text_input("행 필터 쿼리(pandas .query 문법)", value="")
     if query_str.strip():
         try:
-            # removed stray training code
-            if False and 'apply_iqr' in locals() and apply_iqr and iqr_cols:
-                work_df, stats_df = iqr_filter(work_df, iqr_cols, k=float(iqr_k))
-                st.info(f"IQR 필터 적용: 제거된 행 수 {len(df) - len(work_df)}")
-
             out = out.query(query_str)
         except Exception as e:
             st.error(f"쿼리 오류: {e}")
@@ -335,7 +327,6 @@ def show_model(df: pd.DataFrame):
         if use_tuning:
             search_type = st.selectbox("탐색 방법", ["Grid", "Random"], index=1)
             cv_folds = st.number_input("교차검증 폴드(CV)", value=5, min_value=2, max_value=10, step=1)
-            # Scoring options
             if problem == "regression":
                 scoring_options = {
                     "Auto (RMSE)": "neg_root_mean_squared_error",
@@ -343,7 +334,6 @@ def show_model(df: pd.DataFrame):
                     "MAE": "neg_mean_absolute_error",
                 }
             else:
-                # If only one class present, F1/ROC AUC may fail; accuracy is safest
                 scoring_options = {
                     "Auto (Accuracy)": "accuracy",
                     "F1(Weighted)": "f1_weighted",
@@ -535,8 +525,8 @@ def show_model(df: pd.DataFrame):
 
 
 def main():
-    st.title("📊 데이터 분석 스타터 (Streamlit)")
-    st.caption("CSV 업로드 또는 샘플 데이터로 간단한 EDA와 시각화를 수행합니다.")
+    st.title(f"📊 {APP_NAME}")
+    st.caption(TAGLINE)
 
     df = sidebar_data_source()
     if df is None or df.empty:

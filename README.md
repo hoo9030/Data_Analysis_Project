@@ -57,3 +57,10 @@ Data_Analysis_Project/
  - 예측/내보내기: 학습된 모델로 예측 컬럼 추가 후 CSV 다운로드
 - 프로파일링(예: ydata-profiling, sweetviz) 통합
 - 앱 테마/레이아웃 사용자화 및 다국어 지원
+## 앱 이름(리포지토리/폴더명) 반영
+- 기본적으로 `src/settings.py`가 현재 프로젝트 폴더명을 Title Case로 변환하여 앱 이름(`APP_NAME`)으로 사용합니다.
+- `run_app.bat`는 폴더명에서 하이픈/언더스코어를 공백으로 치환해 `APP_NAME` 환경변수를 설정합니다.
+- 고정하고 싶다면 실행 전 환경변수로 지정하세요:
+  - PowerShell/CMD: `set APP_NAME=내 앱 이름 & run_app.bat`
+  - Bash: `APP_NAME="내 앱 이름" streamlit run app.py`
+- 태그라인은 `APP_TAGLINE` 환경변수 또는 `src/settings.py`의 기본값으로 제어합니다.
