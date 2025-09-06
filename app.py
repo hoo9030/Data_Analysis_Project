@@ -10,12 +10,14 @@ from src.viz_ops import (
     plot_bar_count,
     plot_line,
     plot_correlation_heatmap,
+    plot_feature_importance,
 )
 from src.model_ops import (
     infer_problem_type,
     train_and_evaluate,
     serialize_model_to_bytes,
     tune_and_evaluate,
+    extract_feature_importances,
 )
 
 
@@ -300,6 +302,20 @@ def show_model(df: pd.DataFrame):
                 st.metric("Best CV Score", f"{best_score:.5f}")
         with st.expander("CV Results Table", expanded=False):
             st.dataframe(cv_results, use_container_width=True)
+
+    st.markdown("#### 해석: 피처 중요도 / 계수")
+    try:
+        fi = extract_feature_importances(model)
+        if not fi.empty:
+            topn = st.slider("Top N", min_value=5, max_value=min(50, len(fi)), value=min(20, len(fi)))
+            fig_imp = plot_feature_importance(fi, top_n=topn)
+            st.plotly_chart(fig_imp, use_container_width=True)
+            with st.expander("표 데이터 보기"):
+                st.dataframe(fi.head(topn), use_container_width=True)
+        else:
+            st.info("이 모델에서는 중요도/계수를 제공하지 않습니다.")
+    except Exception as e:
+        st.warning(f"중요도 계산 실패: {e}")
 
     st.markdown("#### 모델 다운로드")
     try:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import io
 import pickle
-from typing import Literal, Tuple, Dict, Any
+from typing import Literal, Tuple, Dict, Any, List
 
 import numpy as np
 import pandas as pd
@@ -304,3 +304,81 @@ def tune_and_evaluate(
     results = results[[c for c in cols if c in results.columns]].sort_values("rank_test_score")
 
     return best_model, metrics, figs, results, searcher.best_params_
+
+
+def _get_output_feature_names(pipe: Pipeline) -> List[str]:
+    """Return output feature names after preprocess step.
+
+    Names include prefixes like 'num__' and 'cat__'.
+    """
+    if "preprocess" not in pipe.named_steps:
+        return []
+    pre = pipe.named_steps["preprocess"]
+    try:
+        names = pre.get_feature_names_out()
+        names = [str(x) for x in names]
+    except Exception:
+        # Fallback: approximate with original columns
+        try:
+            # Attempt to reconstruct from transformers list
+            names = []
+            for name, trans, cols in pre.transformers_:
+                if hasattr(trans, "get_feature_names_out"):
+                    sub_names = trans.get_feature_names_out(cols)
+                    names.extend([f"{name}__{sn}" for sn in sub_names])
+                else:
+                    names.extend([f"{name}__{c}" for c in cols])
+        except Exception:
+            names = []
+    return names
+
+
+def extract_feature_importances(pipe: Pipeline) -> pd.DataFrame:
+    """Extract feature importances/coefficients from a fitted pipeline.
+
+    Returns DataFrame with columns: feature, importance, signed (optional for linear models).
+    """
+    model = pipe.named_steps.get("model")
+    if model is None:
+        return pd.DataFrame()
+
+    feat_names = _get_output_feature_names(pipe)
+    # Clean prefixes for readability
+    clean_names = [n.replace("num__", "").replace("cat__", "") for n in feat_names]
+
+    imp = None
+    signed = None
+
+    if hasattr(model, "feature_importances_"):
+        arr = np.asarray(model.feature_importances_).ravel()
+        imp = arr
+    elif hasattr(model, "coef_"):
+        co = np.asarray(model.coef_)
+        if co.ndim == 1:
+            signed = co
+            imp = np.abs(co)
+        else:
+            # Multi-class: aggregate across classes
+            signed = np.mean(co, axis=0)
+            imp = np.mean(np.abs(co), axis=0)
+    else:
+        return pd.DataFrame()
+
+    # Align lengths if transformers dropped columns
+    if feat_names and len(imp) != len(clean_names):
+        # Trim or pad (pad with zeros) to match lengths safely
+        n = min(len(imp), len(clean_names))
+        imp = imp[:n]
+        signed = signed[:n] if signed is not None else None
+        clean_names = clean_names[:n]
+
+    df_imp = pd.DataFrame({
+        "feature": clean_names if clean_names else [f"f{i}" for i in range(len(imp))],
+        "importance": imp,
+    })
+    if signed is not None:
+        df_imp["signed"] = signed
+
+    # Sort by absolute importance desc
+    df_imp = df_imp.sort_values("importance", ascending=False).reset_index(drop=True)
+    return df_imp

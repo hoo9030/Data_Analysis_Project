@@ -47,3 +47,10 @@ def plot_line(df: pd.DataFrame, x: str, y: str, color: str | None = None):
     fig.update_layout(margin=dict(l=10, r=10, t=30, b=10))
     return fig
 
+
+def plot_feature_importance(df: pd.DataFrame, feature_col: str = "feature", value_col: str = "importance", top_n: int = 30):
+    d = df[[feature_col, value_col]].head(top_n).copy()
+    d = d.iloc[::-1]  # reverse for horizontal bar top-down
+    fig = px.bar(d, x=value_col, y=feature_col, orientation="h")
+    fig.update_layout(margin=dict(l=10, r=10, t=30, b=10))
+    return fig
