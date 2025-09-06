@@ -20,6 +20,7 @@ from src.model_ops import (
     extract_feature_importances,
     align_columns_for_inference,
 )
+from src.preprocess_ops import iqr_filter, remove_duplicates
 
 
 st.set_page_config(
@@ -166,9 +167,31 @@ def show_transform(df: pd.DataFrame):
     if dropna:
         out = out.dropna()
 
+    with st.expander("고급 전처리", expanded=False):
+        rm_dups = st.checkbox("중복 제거", value=False)
+        if rm_dups:
+            dup_subset = st.multiselect("중복 판단 컬럼(없으면 전체)", out.columns.tolist())
+            dup_keep_choice = st.selectbox("중복 유지", ["first", "last", "drop all"], index=0)
+            keep_param = dup_keep_choice if dup_keep_choice != "drop all" else False
+            out = remove_duplicates(out, subset=dup_subset if dup_subset else None, keep=keep_param)
+
+        num_cols, _, _ = detect_column_types(out)
+        use_iqr = st.checkbox("IQR 이상치 제거", value=False)
+        if use_iqr and num_cols:
+            sel = st.multiselect("대상 수치 컬럼", num_cols, default=num_cols)
+            kk = st.slider("IQR 배수(k)", 0.5, 3.0, 1.5, 0.1)
+            out, stats = iqr_filter(out, sel, k=float(kk))
+            with st.expander("IQR 통계", expanded=False):
+                st.dataframe(stats, use_container_width=True)
+
     query_str = st.text_input("행 필터 쿼리(pandas .query 문법)", value="")
     if query_str.strip():
         try:
+            # removed stray training code
+            if False and 'apply_iqr' in locals() and apply_iqr and iqr_cols:
+                work_df, stats_df = iqr_filter(work_df, iqr_cols, k=float(iqr_k))
+                st.info(f"IQR 필터 적용: 제거된 행 수 {len(df) - len(work_df)}")
+
             out = out.query(query_str)
         except Exception as e:
             st.error(f"쿼리 오류: {e}")
@@ -216,6 +239,26 @@ def show_model(df: pd.DataFrame):
         with colp2:
             random_state = st.number_input("랜덤 시드", value=42, step=1)
 
+        with st.expander("전처리 옵션", expanded=False):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                num_imputer = st.selectbox("수치 결측 전략", ["median", "mean", "most_frequent", "constant"], index=0)
+                scaling = st.selectbox("스케일링", ["standard", "minmax", "robust", "none"], index=0)
+            with c2:
+                cat_imputer = st.selectbox("범주 결측 전략", ["most_frequent", "constant"], index=0)
+                onehot_drop = st.selectbox("OneHot drop", ["none", "first", "if_binary"], index=0)
+            with c3:
+                num_fill_value = st.number_input("수치 상수값", value=0.0, step=1.0, help="수치 결측=constant 선택 시 사용") if num_imputer == "constant" else None
+                cat_fill_value = st.text_input("범주 상수값", value="missing", help="범주 결측=constant 선택 시 사용") if cat_imputer == "constant" else None
+
+            apply_iqr = st.checkbox("IQR 이상치 제거(학습 전)", value=False)
+            iqr_cols = []
+            iqr_k = 1.5
+            if apply_iqr:
+                num_cols, _, _ = detect_column_types(df)
+                iqr_cols = st.multiselect("이상치 제거 대상 컬럼(수치)", num_cols, default=num_cols)
+                iqr_k = st.slider("IQR 배수(k)", min_value=0.5, max_value=3.0, value=1.5, step=0.1)
+
         st.markdown("---")
         use_tuning = st.checkbox("하이퍼파라미터 튜닝 사용", value=True)
         if use_tuning:
@@ -248,9 +291,22 @@ def show_model(df: pd.DataFrame):
 
     with st.spinner("학습 중..."):
         try:
+            work_df = df.copy()
+            if 'apply_iqr' in locals() and apply_iqr and iqr_cols:
+                work_df, stats_df = iqr_filter(work_df, iqr_cols, k=float(iqr_k))
+                st.info(f"IQR 필터 적용: 제거된 행 수 {len(df) - len(work_df)}")
+
+            preproc = {
+                "num_imputer": num_imputer,
+                "num_fill_value": num_fill_value,
+                "cat_imputer": cat_imputer,
+                "cat_fill_value": cat_fill_value,
+                "scaling": None if scaling == "none" else scaling,
+                "onehot_drop": None if onehot_drop == "none" else onehot_drop,
+            }
             if use_tuning:
                 model, metrics, figs, cv_results, best_params = tune_and_evaluate(
-                    df,
+                    work_df,
                     target=target,
                     problem=problem,
                     model_name=model_name,
@@ -260,15 +316,17 @@ def show_model(df: pd.DataFrame):
                     n_iter=int(n_iter) if n_iter else 25,
                     test_size=float(test_size),
                     random_state=int(random_state),
+                    preproc=preproc,
                 )
             else:
                 model, metrics, figs = train_and_evaluate(
-                    df,
+                    work_df,
                     target=target,
                     problem=problem,
                     model_name=model_name,
                     test_size=float(test_size),
                     random_state=int(random_state),
+                    preproc=preproc,
                 )
                 cv_results, best_params = None, None
         except Exception as e:

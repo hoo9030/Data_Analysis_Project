@@ -9,7 +9,7 @@ import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import OneHotEncoder, StandardScaler, MinMaxScaler, RobustScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import (
     accuracy_score,
@@ -47,17 +47,40 @@ def split_features(df: pd.DataFrame, target: str) -> Tuple[list[str], list[str]]
     return num_cols, cat_cols
 
 
-def build_pipeline(problem: ProblemType, num_cols: list[str], cat_cols: list[str], model_name: str) -> Pipeline:
-    numeric_transformer = Pipeline(
-        steps=[
-            ("imputer", SimpleImputer(strategy="median")),
-            ("scaler", StandardScaler()),
-        ]
-    )
+def build_pipeline(
+    problem: ProblemType,
+    num_cols: list[str],
+    cat_cols: list[str],
+    model_name: str,
+    *,
+    num_imputer: str = "median",  # mean|median|most_frequent|constant
+    num_fill_value: float | None = None,
+    cat_imputer: str = "most_frequent",  # most_frequent|constant
+    cat_fill_value: str | None = None,
+    scaling: str | None = "standard",  # None|standard|minmax|robust
+    onehot_drop: str | None = None,  # None|first|if_binary
+) -> Pipeline:
+    num_imp = SimpleImputer(strategy=num_imputer if num_imputer != "constant" else "constant", fill_value=num_fill_value)
+    cat_imp = SimpleImputer(strategy=cat_imputer if cat_imputer != "constant" else "constant", fill_value=cat_fill_value)
+
+    steps_num = [("imputer", num_imp)]
+    if scaling and scaling.lower() != "none":
+        if scaling == "standard":
+            steps_num.append(("scaler", StandardScaler()))
+        elif scaling == "minmax":
+            steps_num.append(("scaler", MinMaxScaler()))
+        elif scaling == "robust":
+            steps_num.append(("scaler", RobustScaler()))
+
+    numeric_transformer = Pipeline(steps=steps_num)
+
+    encoder_kwargs = {"handle_unknown": "ignore"}
+    if onehot_drop in ("first", "if_binary"):
+        encoder_kwargs["drop"] = onehot_drop
     categorical_transformer = Pipeline(
         steps=[
-            ("imputer", SimpleImputer(strategy="most_frequent")),
-            ("onehot", OneHotEncoder(handle_unknown="ignore")),
+            ("imputer", cat_imp),
+            ("onehot", OneHotEncoder(**encoder_kwargs)),
         ]
     )
 
@@ -111,12 +134,22 @@ def train_and_evaluate(
     model_name: str,
     test_size: float = 0.2,
     random_state: int = 42,
+    preproc: Dict[str, Any] | None = None,
 ) -> Tuple[Pipeline, Dict[str, float], Dict[str, Any]]:
     X = df.drop(columns=[target])
     y = df[target]
 
     num_cols, cat_cols = split_features(df, target)
-    pipe = build_pipeline(problem, num_cols, cat_cols, model_name)
+    preproc = preproc or {}
+    pipe = build_pipeline(
+        problem, num_cols, cat_cols, model_name,
+        num_imputer=preproc.get("num_imputer", "median"),
+        num_fill_value=preproc.get("num_fill_value"),
+        cat_imputer=preproc.get("cat_imputer", "most_frequent"),
+        cat_fill_value=preproc.get("cat_fill_value"),
+        scaling=preproc.get("scaling", "standard"),
+        onehot_drop=preproc.get("onehot_drop"),
+    )
 
     stratify = y if problem == "classification" and y.nunique() > 1 else None
     X_train, X_test, y_train, y_test = train_test_split(
@@ -230,6 +263,7 @@ def tune_and_evaluate(
     n_iter: int = 25,
     test_size: float = 0.2,
     random_state: int = 42,
+    preproc: Dict[str, Any] | None = None,
 ) -> Tuple[Pipeline, Dict[str, float], Dict[str, Any], pd.DataFrame, Dict[str, Any]]:
     """Run CV-based hyperparameter tuning, then evaluate on a hold-out split.
 
@@ -239,7 +273,16 @@ def tune_and_evaluate(
     y = df[target]
 
     num_cols, cat_cols = split_features(df, target)
-    base = build_pipeline(problem, num_cols, cat_cols, model_name)
+    preproc = preproc or {}
+    base = build_pipeline(
+        problem, num_cols, cat_cols, model_name,
+        num_imputer=preproc.get("num_imputer", "median"),
+        num_fill_value=preproc.get("num_fill_value"),
+        cat_imputer=preproc.get("cat_imputer", "most_frequent"),
+        cat_fill_value=preproc.get("cat_fill_value"),
+        scaling=preproc.get("scaling", "standard"),
+        onehot_drop=preproc.get("onehot_drop"),
+    )
     param_grid = get_param_grid(problem, model_name)
 
     # CV Search
