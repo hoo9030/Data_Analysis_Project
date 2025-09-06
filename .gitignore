@@ -1,0 +1,16 @@
+# Python virtual environment folders
+.venv/
+venv/
+env/
+ENV/
+.virtualenv/
+venv.*/
+.venv.*/
+
+# Optional: pyenv local version file (environment-specific)
+.python-version
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
