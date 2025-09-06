@@ -11,6 +11,7 @@ from src.viz_ops import (
     plot_line,
     plot_correlation_heatmap,
 )
+from src.model_ops import infer_problem_type, train_and_evaluate, serialize_model_to_bytes
 
 
 st.set_page_config(
@@ -180,16 +181,76 @@ def show_transform(df: pd.DataFrame):
     )
 
 
-def show_model_stub(df: pd.DataFrame):
-    st.subheader("모델(Stub)")
-    st.info("간단한 베이스라인 모델을 이후에 추가할 영역입니다. 예: 회귀/분류")
-    with st.expander("힌트: 다음 기능을 고려해보세요"):
-        st.markdown(
-            "- 타깃 컬럼 선택 및 train/test 분할\n"
-            "- 스케일링 및 인코딩\n"
-            "- 간단한 알고리즘(선형회귀/로지스틱/랜덤포레스트) 학습\n"
-            "- 기본 평가지표 출력 (RMSE/Accuracy 등)"
+def show_model(df: pd.DataFrame):
+    st.subheader("모델")
+    all_cols = df.columns.tolist()
+    if not all_cols:
+        st.info("데이터가 비어있습니다.")
+        return
+
+    with st.form("model_form"):
+        target = st.selectbox("타깃 컬럼", all_cols, index=min(len(all_cols)-1, all_cols.index(all_cols[-1])))
+        y = df[target]
+
+        auto_problem = infer_problem_type(y)
+        problem_map = {"자동": auto_problem, "분류": "classification", "회귀": "regression"}
+        problem_choice = st.selectbox("문제 유형", list(problem_map.keys()), index=0, help=f"자동 추정: {auto_problem}")
+        problem = problem_map[problem_choice]
+
+        if problem == "regression":
+            model_name = st.selectbox("알고리즘", ["Linear Regression", "Random Forest"], index=1)
+        else:
+            model_name = st.selectbox("알고리즘", ["Logistic Regression", "Random Forest"], index=1)
+
+        colp1, colp2 = st.columns(2)
+        with colp1:
+            test_size = st.slider("검증 비율(test_size)", 0.1, 0.4, 0.2, 0.05)
+        with colp2:
+            random_state = st.number_input("랜덤 시드", value=42, step=1)
+
+        submitted = st.form_submit_button("학습 실행")
+
+    if not submitted:
+        st.info("매개변수를 선택하고 '학습 실행'을 눌러주세요.")
+        return
+
+    with st.spinner("학습 중..."):
+        try:
+            model, metrics, figs = train_and_evaluate(
+                df, target=target, problem=problem, model_name=model_name,
+                test_size=float(test_size), random_state=int(random_state)
+            )
+        except Exception as e:
+            st.error(f"학습 실패: {e}")
+            return
+
+    st.markdown("#### 지표")
+    m_items = list(metrics.items())
+    cols = st.columns(len(m_items))
+    for c, (k, v) in zip(cols, m_items):
+        if isinstance(v, (int, float)):
+            c.metric(k, f"{v:.4f}")
+        else:
+            c.metric(k, str(v))
+
+    st.markdown("#### 진단 차트")
+    if figs:
+        for k, fig in figs.items():
+            st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("표시할 차트가 없습니다.")
+
+    st.markdown("#### 모델 다운로드")
+    try:
+        blob = serialize_model_to_bytes(model)
+        st.download_button(
+            label="학습 파이프라인 저장(.pkl)",
+            data=blob,
+            file_name="model_pipeline.pkl",
+            mime="application/octet-stream",
         )
+    except Exception as e:
+        st.warning(f"모델 직렬화 실패: {e}")
 
 
 def main():
@@ -201,7 +262,7 @@ def main():
         st.warning("좌측 사이드바에서 데이터를 불러오세요.")
         st.stop()
 
-    tabs = st.tabs(["개요", "탐색", "시각화", "변환", "모델(Stub)"])
+    tabs = st.tabs(["개요", "탐색", "시각화", "변환", "모델"])
     with tabs[0]:
         show_overview(df)
     with tabs[1]:
@@ -211,9 +272,8 @@ def main():
     with tabs[3]:
         show_transform(df)
     with tabs[4]:
-        show_model_stub(df)
+        show_model(df)
 
 
 if __name__ == "__main__":
     main()
-
