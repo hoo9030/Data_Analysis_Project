@@ -28,11 +28,12 @@ from src.model_ops import (
 )
 from src.preprocess_ops import iqr_filter, remove_duplicates
 from src.settings import APP_NAME, TAGLINE
-from src.ui import render_header
+from src.ui import render_header, render_topnav, render_footer
 
 
 st.set_page_config(page_title=APP_NAME, page_icon="📊", layout="wide")
 render_header(icon="📊", show_tagline=True)
+render_topnav(active="Studio")
 
 
 def sidebar_data_source():
@@ -550,3 +551,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    render_footer()
