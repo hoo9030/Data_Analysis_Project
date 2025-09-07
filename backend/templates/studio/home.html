@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -65,7 +65,7 @@
             <select id="chartType">
               <option value="histogram">Histogram</option>
               <option value="scatter">Scatter</option>
-              <option value="box">Box</option>
+              <option value="box">Box</option>              <option value="bar_count">Bar Count</option>              <option value="line">Line</option>              <option value="density_contour">KDE (Contour)</option>              <option value="density_heatmap">2D Density</option>
             </select>
           </label>
           <label>X
@@ -202,7 +202,7 @@
         if(includeNone){ const o=document.createElement('option'); o.value=''; o.textContent='(none)'; el.appendChild(o); }
         (items||[]).forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; el.appendChild(o); });
       };
-      fill(selX, (ci.numeric||[]).concat(ci.categorical||[]));
+      fill(selX, (ci.datetime||[]).concat(ci.numeric||[]).concat(ci.categorical||[]));
       fill(selY, ci.numeric||[], true);
       fill(selColor, (ci.categorical||[]), true);
 
@@ -218,7 +218,7 @@
         const res = await fetch('/api/eda/visualize', { method:'POST', body: fd });
         const data = await res.json();
         if(!res.ok){ alert(data.detail || data.error || 'Failed'); return; }
-        Plotly.newPlot('vizChart', data.figure.data || data.figure.data === undefined ? data.figure.data : data.figure, data.figure.layout || {}, {displaylogo:false, responsive:true});
+        Plotly.newPlot('vizChart', (data.figure && data.figure.data) ? data.figure.data : [], (data.figure && data.figure.layout) ? data.figure.layout : {}, {displaylogo:false, responsive:true});
       };
 
       document.getElementById('drawSampleBtn').onclick = async () => {
@@ -229,7 +229,7 @@
         const res = await fetch('/api/sample/visualize?' + params.toString());
         const data = await res.json();
         if(!res.ok){ alert(data.detail || data.error || 'Failed'); return; }
-        Plotly.newPlot('vizChart', data.figure.data || data.figure.data === undefined ? data.figure.data : data.figure, data.figure.layout || {}, {displaylogo:false, responsive:true});
+        Plotly.newPlot('vizChart', (data.figure && data.figure.data) ? data.figure.data : [], (data.figure && data.figure.layout) ? data.figure.layout : {}, {displaylogo:false, responsive:true});
       };
 
       // Profiling
@@ -249,3 +249,4 @@
     </script>
   </body>
   </html>
+
