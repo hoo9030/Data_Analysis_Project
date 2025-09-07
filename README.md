@@ -15,7 +15,7 @@ pip install -r requirements.txt
 2) 앱 실행
 
 ```
-streamlit run app.py
+run.bat studio
 ```
 
 3) 사용 방법
@@ -59,8 +59,24 @@ Data_Analysis_Studio/
 - 앱 테마/레이아웃 사용자화 및 다국어 지원
 ## 앱 이름(리포지토리/폴더명) 반영
 - 기본적으로 `src/settings.py`가 현재 프로젝트 폴더명을 Title Case로 변환하여 앱 이름(`APP_NAME`)으로 사용합니다.
-- `run_app.bat`는 폴더명에서 하이픈/언더스코어를 공백으로 치환해 `APP_NAME` 환경변수를 설정합니다.
+- `run.bat studio`는 폴더명에서 하이픈/언더스코어를 공백으로 치환해 `APP_NAME` 환경변수를 설정합니다.
 - 고정하고 싶다면 실행 전 환경변수로 지정하세요:
-  - PowerShell/CMD: `set APP_NAME=내 앱 이름 & run_app.bat`
+  - PowerShell/CMD: `set APP_NAME=내 앱 이름 & run.bat studio`
   - Bash: `APP_NAME="내 앱 이름" streamlit run app.py`
 - 태그라인은 `APP_TAGLINE` 환경변수 또는 `src/settings.py`의 기본값으로 제어합니다.
+\n+## 통합 실행(run.bat)
+\n+다음 모드를 지원합니다:
+\n+- Studio: `run.bat studio` — Streamlit 기반 Studio 실행
+- Django: `run.bat django` — Django 개발 서버 실행(`http://127.0.0.1:8000`)
+- Combined: `run.bat combined` — Uvicorn으로 Django + FastAPI(및 Flask) 통합 실행
+- Install: `run.bat install` — 가상환경 생성/유지 및 의존성 설치
+- Migrate: `run.bat migrate` — Django 데이터베이스 마이그레이션
+\n+공통 환경변수:
+- `APP_NAME`: 앱 표시 이름(미지정 시 폴더명에서 추론)
+- `DJANGO_ALLOWED_HOSTS`: Django 허용 호스트 목록(기본: `localhost,127.0.0.1`)
+- `SKIP_INSTALL=1`: 의존성 설치를 건너뜀(빠른 재실행용)
+\n+예시:
+```
+set APP_NAME=내 앱 이름 & run.bat studio
+set DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1 & run.bat combined
+```
