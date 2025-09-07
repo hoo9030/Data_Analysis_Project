@@ -37,6 +37,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 # Import reusable analysis function
 from eda_ops import basic_info  # type: ignore
+from data_ops import generate_sample_data  # type: ignore
 
 
 # Django ASGI app mounted at '/'
@@ -62,6 +63,31 @@ async def eda_summary(
         "columns": int(info.get("columns", df.shape[1] if not df.empty else 0)),
         "memory": str(info.get("memory", "")),
     }
+
+
+@api.get("/sample/summary")
+async def sample_summary(rows: int = 500, seed: int = 42):
+    df = generate_sample_data(rows=rows, seed=seed)
+    info = basic_info(df)
+    return {
+        "rows": int(info.get("rows", len(df))),
+        "columns": int(info.get("columns", df.shape[1] if not df.empty else 0)),
+        "memory": str(info.get("memory", "")),
+    }
+
+
+@api.get("/sample/csv")
+async def sample_csv(rows: int = 500, seed: int = 42):
+    from starlette.responses import StreamingResponse
+    import io as _io
+
+    df = generate_sample_data(rows=rows, seed=seed)
+    csv_text = df.to_csv(index=False)
+    buf = _io.BytesIO(csv_text.encode("utf-8"))
+    headers = {
+        "Content-Disposition": f"attachment; filename=sample_{rows}_{seed}.csv"
+    }
+    return StreamingResponse(buf, media_type="text/csv; charset=utf-8", headers=headers)
 
 
 # Optional: small Flask app mounted at '/legacy'

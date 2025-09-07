@@ -20,12 +20,12 @@
     <div class="container">
       <div class="card">
         <div class="title">Data Analysis Studio</div>
-        <div class="tagline">Upload a CSV and get a quick summary.</div>
+        <div class="tagline">Upload a CSV or use a sample dataset to get a quick summary.</div>
         <form id="uform" class="upload">
           <input type="file" name="file" accept=".csv" />
           <button class="btn" type="submit">Get Summary</button>
         </form>
-      </div>
+              <div style="margin-top:10px; display:flex; gap:8px; align-items:center;">          <a class="btn" href="/api/sample/csv?rows=500&seed=42">Download Sample CSV</a>          <button id="sampleBtn" class="btn" type="button">Sample Summary</button>        </div>      </div>
 
       <div id="result" style="margin-top:16px;"></div>
     </div>
@@ -46,6 +46,19 @@
         out.innerHTML = `<pre>${err}</pre>`;
       }
     });
-    </script>
+        document.getElementById('sampleBtn').addEventListener('click', async () => {
+      out.innerHTML = 'Generating sample summary...';
+      try {
+        const res = await fetch('/api/sample/summary');
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Request failed');
+        out.innerHTML = <pre></pre>;
+      } catch (err) {
+        out.innerHTML = <pre></pre>;
+      }
+    });</script>
   </body>
   </html>
+
+
+
