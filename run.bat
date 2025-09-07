@@ -16,6 +16,8 @@ cd /d "%ROOT%"
 set "VENV=.venv"
 set "PYEXE=%VENV%\Scripts\python.exe"
 
+goto :dispatch
+
 REM Ensure venv exists (create if missing)
 :ensure_venv
 if exist "%PYEXE%" goto :eof_ensure_venv
@@ -124,6 +126,7 @@ echo Invalid choice.
 exit /b 1
 
 REM Argument routing ----------------------------------------------------------
+:dispatch
 if "%~1"=="" goto :menu
 set ARG=%~1
 if /i "%ARG%"=="studio"   goto :cmd_studio
@@ -136,4 +139,3 @@ echo Usage: run.bat ^<studio^|django^|combined^|install^|migrate^>
 exit /b 1
 
 endlocal
-
