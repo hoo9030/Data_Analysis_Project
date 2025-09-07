@@ -115,7 +115,7 @@
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const fd = new FormDataa(form);
+      const fd = new FormData(form);
       fileRef = form.querySelector('input[name="file"]').files[0] || null;
       dbg.style.display = 'block';
       dbg.innerHTML = 'Generating summary...';
@@ -220,7 +220,7 @@
 
       document.getElementById('drawBtn').onclick = async () => {
         if(!fileRef){ alert('Upload a CSV first.'); return; }
-        const fd = new FormDataa();
+        const fd = new FormData();
         fd.append('file', fileRef);
         fd.append('chart', document.getElementById('chartType').value);
         fd.append('x', selX.value || '');
@@ -248,7 +248,7 @@
       document.getElementById('profileSection').style.display = 'block';
       document.getElementById('profileBtn').onclick = async () => {
         if(!fileRef){ alert('Upload a CSV first.'); return; }
-        const fd = new FormDataa();
+        const fd = new FormData();
         fd.append('file', fileRef);
         fd.append('minimal', '1');
         fd.append('sample_n', '2000');
@@ -292,6 +292,7 @@
     </script>
   </body>
   </html>
+
 
 
 
