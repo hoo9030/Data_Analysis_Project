@@ -1,4 +1,4 @@
-"""Combined ASGI application: Django + FastAPI + Flask.
+﻿"""Combined ASGI application: Django + FastAPI + Flask.
 
 Run (dev):
   uvicorn backend.asgi_combined:app --reload
@@ -12,7 +12,7 @@ import io
 from pathlib import Path
 
 import pandas as pd
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from starlette.applications import Starlette
 from starlette.routing import Mount
 from starlette.staticfiles import StaticFiles
@@ -20,6 +20,8 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.wsgi import WSGIMiddleware
 from django.core.asgi import get_asgi_application
 from flask import Flask
+import plotly.express as px
+from starlette.responses import Response
 
 
 # Django settings
@@ -135,6 +137,80 @@ async def sample_csv(rows: int = 500, seed: int = 42):
     return StreamingResponse(buf, media_type="text/csv; charset=utf-8", headers=headers)
 
 
+def _build_figure(df: pd.DataFrame, chart: str, x: str | None, y: str | None, color: str | None, bins: int = 30):
+    chart = (chart or "").lower()
+    if chart == "histogram":
+        if not x:
+            raise HTTPException(400, detail="x is required for histogram")
+        fig = px.histogram(df, x=x, color=color, nbins=bins)
+    elif chart == "scatter":
+        if not (x and y):
+            raise HTTPException(400, detail="x and y are required for scatter")
+        fig = px.scatter(df, x=x, y=y, color=color)
+    elif chart == "box":
+        if not y:
+            raise HTTPException(400, detail="y is required for box")
+        fig = px.box(df, x=x, y=y, color=color)
+    else:
+        raise HTTPException(400, detail="Unsupported chart. Use histogram|scatter|box")
+    return fig.to_dict()
+
+
+@api.post("/eda/visualize")
+async def eda_visualize(
+    file: UploadFile = File(...),
+    chart: str = Form(...),
+    x: str | None = Form(None),
+    y: str | None = Form(None),
+    color: str | None = Form(None),
+    bins: int = Form(30),
+):
+    try:
+        data = await file.read()
+        df = pd.read_csv(io.BytesIO(data))
+        spec = _build_figure(df, chart=chart, x=x, y=y, color=color, bins=bins)
+        return {"figure": spec}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(400, detail=str(e))
+
+
+@api.get("/sample/visualize")
+async def sample_visualize(
+    chart: str,
+    x: str | None = None,
+    y: str | None = None,
+    color: str | None = None,
+    bins: int = 30,
+    rows: int = 500,
+    seed: int = 42,
+):
+    df = generate_sample_data(rows=rows, seed=seed)
+    spec = _build_figure(df, chart=chart, x=x, y=y, color=color, bins=bins)
+    return {"figure": spec}
+
+
+@api.post("/profile/html")
+async def profile_html(
+    file: UploadFile = File(...),
+    minimal: bool = Form(True),
+    sample_n: int | None = Form(2000),
+):
+    try:
+        from profile_ops import generate_profile_html  # type: ignore
+    except Exception as e:
+        raise HTTPException(500, detail=f"Profiling import error: {e}")
+
+    try:
+        data = await file.read()
+        df = pd.read_csv(io.BytesIO(data))
+        html = generate_profile_html(df, minimal=bool(minimal), sample_n=sample_n)
+        return Response(content=html, media_type="text/html; charset=utf-8")
+    except Exception as e:
+        raise HTTPException(400, detail=str(e))
+
+
 # Optional: small Flask app mounted at '/legacy'
 flask_app = Flask(__name__)
 
@@ -167,3 +243,4 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
