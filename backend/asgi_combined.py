@@ -50,6 +50,91 @@ django_asgi = get_asgi_application()
 api = FastAPI(title="Studio API", version="0.1.0")
 
 
+# ----- CSV utilities ---------------------------------------------------------
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB hard limit
+
+
+def _detect_encoding(data: bytes) -> str | None:
+    try:
+        import chardet  # type: ignore
+
+        res = chardet.detect(data)
+        enc = res.get("encoding") if isinstance(res, dict) else None
+        return enc
+    except Exception:
+        return None
+
+
+def _smart_read_csv(
+    data: bytes,
+    *,
+    sep: str | None = None,
+    decimal: str | None = None,
+    encoding: str | None = None,
+):
+    """Try to read CSV with best-effort detection for encoding and delimiter.
+
+    Returns (df, used_encoding, used_sep).
+    """
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, detail=f"File too large (>{MAX_UPLOAD_BYTES // (1024*1024)} MB)")
+
+    # Build encoding candidates
+    enc_candidates: list[str] = []
+    if encoding:
+        enc_candidates.append(encoding)
+    detected = _detect_encoding(data)
+    if detected and detected.lower() not in {e.lower() for e in enc_candidates}:
+        enc_candidates.append(detected)
+    # Common fallbacks
+    for e in ["utf-8", "utf-8-sig", "cp949", "euc-kr", "latin1"]:
+        if e.lower() not in {x.lower() for x in enc_candidates}:
+            enc_candidates.append(e)
+
+    last_err: Exception | None = None
+    used_enc: str | None = None
+    used_sep: str | None = None
+
+    for enc in enc_candidates:
+        try:
+            # If sep not provided, let pandas infer using python engine
+            if sep:
+                df = pd.read_csv(io.BytesIO(data), sep=sep, decimal=decimal or ".", encoding=enc)
+                used_sep = sep
+            else:
+                df = pd.read_csv(io.BytesIO(data), sep=None, engine="python", decimal=decimal or ".", encoding=enc)
+                used_sep = None
+            used_enc = enc
+            # If header collapsed to single wide column, try csv.Sniffer
+            if df.shape[1] == 1 and not sep:
+                import csv
+                try:
+                    preview = data[:4096].decode(enc, errors="ignore")
+                    dialect = csv.Sniffer().sniff(preview)
+                    delim = dialect.delimiter
+                    df = pd.read_csv(io.BytesIO(data), sep=delim, decimal=decimal or ".", encoding=enc)
+                    used_sep = delim
+                except Exception:
+                    pass
+            return df, used_enc, used_sep
+        except Exception as e:
+            last_err = e
+            continue
+
+    # Final fallback: decode ignoring errors and try generic read
+    try:
+        txt = data.decode("utf-8", errors="ignore")
+        df = pd.read_csv(io.StringIO(txt), sep=sep or None, engine="python")
+        return df, used_enc or "utf-8", used_sep
+    except Exception:
+        pass
+
+    msg = "Failed to parse CSV. Try specifying encoding or delimiter."
+    if last_err:
+        msg += f" Last error: {type(last_err).__name__}: {last_err}"
+    raise HTTPException(status_code=400, detail=msg)
+
+
 @api.post("/eda/summary")
 async def eda_summary(
     file: UploadFile = File(...),
@@ -59,7 +144,10 @@ async def eda_summary(
     max_corr_dims: int = Form(8),
 ):
     data = await file.read()
-    df = pd.read_csv(io.BytesIO(data), sep=sep, decimal=decimal, encoding=encoding)
+    # Blank values act as auto-detect
+    auto_sep = sep or None
+    auto_enc = encoding or None
+    df, used_enc, used_sep = _smart_read_csv(data, sep=auto_sep, decimal=decimal or ".", encoding=auto_enc)
     info = basic_info(df)
     # Missing summary
     ms_df = missing_summary(df)
@@ -91,6 +179,7 @@ async def eda_summary(
         },
         "missing": ms_list,
         "corr": corr_payload,
+        "detected": {"encoding": used_enc, "sep": used_sep},
     }
 
 
@@ -183,7 +272,7 @@ async def eda_visualize(
 ):
     try:
         data = await file.read()
-        df = pd.read_csv(io.BytesIO(data))
+        df, _, _ = _smart_read_csv(data)
         spec = _build_figure(df, chart=chart, x=x, y=y, color=color, bins=bins)
         return {"figure": spec}
     except HTTPException:
