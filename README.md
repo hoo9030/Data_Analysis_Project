@@ -1,78 +1,78 @@
-# ?�이??분석 ?�튜?�오 (Streamlit)
+﻿# 데이터 분석 스튜디오 (ASGI)
 
-?�장 가?�한 EDA·모델링·프로파?�링·?�각???�입?�다. 기존 'Starter'?�서 ?�장?�어 ???��???기능???�공?�니??
+데이터 탐색·시각화·모델링을 위한 Python 기반 프로젝트입니다. 분석 로직은 Python 그대로 유지하고, 웹은 Django + FastAPI 통합 ASGI 앱으로 제공합니다.
 
-## 빠른 ?�작
+## 빠른 시작
 
-1) 가?�환�??�성 �??�키지 ?�치
-
+1) 환경 준비
 ```
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-2) ???�행
-
+2) 실행 (ASGI 통합 모드 권장)
 ```
 run.bat combined
 ```
 
-3) ?�용 방법
-- 좌측 ?�이?�바?�서 CSV ?�로???�는 ?�플 ?�이???�용 ?�택
-- ?�단 ??��??개요/?�색/?�각??변???�보?�기)/모델(Stub) 기능 ?�용
+## 통합 실행(run.bat)
 
-## ?�함 기능
-- CSV ?�로??구분???�코???�수???�정)
-- ?�플 ?�이???�성(?????�드)
-- 개요: 미리보기, 결측�??�약, ?��?관�??�트�?- ?�색: ?�치???�약, 범주�?분포
-- ?�각?? ?�스?�그???�점??박스?�롯/막�?(빈도)/?�형(?�계??
-  - 고급: ?�점???�렬, 2D 밀??컨투???�트�?, ?�이???�스?�그??바이?�린
-- 변?? 컬럼 ?�택, 결측�??�거, Query ?�터, ?�플�? CSV ?�운로드
-- 모델: 분류/?��? 베이?�라??+ ?�이?�파?��????�닝(Grid/Random + CV),
-  지??Accuracy/F1, MAE/RMSE/R2), ?�동?�렬/?�측-?�측/?�차 ?�스?�그??
-  CV 결과??최적 ?�라미터/Best CV Score ?�시
- - ?�석: ?�처 중요???�리) / 계수(?�형/로�??�틱) ?�각?? - ?�측/?�보?�기: ?�습??모델�??�체/?�로???�이?�에 ?�???�측 ?�성,
-   ?�률 ?�함 ?�션(분류) �?CSV ?�운로드
- - ?�처�?고급): 모델 ??��??결측 ?�략(?�치/범주), ?��??�링(Standard/MinMax/Robust),
-   OneHot drop ?�션(first/if_binary) ?�택 �?IQR ?�상�??�거(?�습 ?? 지?? - 변???? 중복 ?�거(부�??�체, first/last/모두 ?�거), IQR ?�상�??�거 지??
-## 구조
-```
-Data_Analysis_Studio/
-?��? app.py                # Streamlit 메인 ???��? requirements.txt      # ?�존??목록
-?��? README.md             # ?�용 ?�내
-?��? src/
-   ?��? data_ops.py        # ?�이??로드/?�플/?�???�별
-   ?��? eda_ops.py         # ?�약/결측/?��? 계산
-   ?��? viz_ops.py         # Plotly ?�각???�틸
-```
+다음 모드를 지원합니다:
 
-## ?�장 ?�이?�어
-- ?�이???�처�??�이?�라???��??�링/?�코???�처?�택) ??추�?
- - ?�측/?�보?�기: ?�습??모델�??�측 컬럼 추�? ??CSV ?�운로드
-- ?�로?�일�??? ydata-profiling, sweetviz) ?�합
-- ???�마/?�이?�웃 ?�용?�화 �??�국??지??## ???�름(리포지?�리/?�더�? 반영
-- 기본?�으�?`src/settings.py`가 ?�재 ?�로?�트 ?�더명을 Title Case�?변?�하?????�름(`APP_NAME`)?�로 ?�용?�니??
-- `run.bat combined`???�더명에???�이???�더?�코?��? 공백?�로 치환??`APP_NAME` ?�경변?��? ?�정?�니??
-- 고정?�고 ?�다�??�행 ???�경변?�로 지?�하?�요:
-  - PowerShell/CMD: `set APP_NAME=?????�름 & run.bat combined`
-  - Bash: `APP_NAME="?????�름" streamlit run app.py`
-- ?�그?�인?� `APP_TAGLINE` ?�경변???�는 `src/settings.py`??기본값으�??�어?�니??
-\n+## ?�합 ?�행(run.bat)
-\n+?�음 모드�?지?�합?�다:
-\n+- Studio: `run.bat studio` ??Streamlit 기반 Studio ?�행
-- Django: `run.bat django` ??Django 개발 ?�버 ?�행(`http://127.0.0.1:8000`)
-- Combined: `run.bat combined` ??Uvicorn?�로 Django + FastAPI(�?Flask) ?�합 ?�행
-- Install: `run.bat install` ??가?�환�??�성/?��? �??�존???�치
-- Migrate: `run.bat migrate` ??Django ?�이?�베?�스 마이그레?�션
-\n+공통 ?�경변??
-- `APP_NAME`: ???�시 ?�름(미�??????�더명에??추론)
-- `DJANGO_ALLOWED_HOSTS`: Django ?�용 ?�스??목록(기본: `localhost,127.0.0.1`)
-- `SKIP_INSTALL=1`: ?�존???�치�?건너?�(빠른 ?�실?�용)
-\n+?�시:
+- Studio: `run.bat studio` — Streamlit 기반 Studio 실행
+- Django: `run.bat django` — Django 개발 서버 실행 (http://127.0.0.1:8000)
+- Combined: `run.bat combined` — Uvicorn으로 Django + FastAPI(및 Flask) 통합 실행
+- Install: `run.bat install` — 가상환경 생성/유지 및 의존성 설치
+- Migrate: `run.bat migrate` — Django 데이터베이스 마이그레이션
+
+공통 환경변수:
+- `APP_NAME`: 앱 표시 이름(미지정 시 폴더명에서 추론)
+- `DJANGO_ALLOWED_HOSTS`: Django 허용 호스트 목록(기본: localhost,127.0.0.1)
+- `SKIP_INSTALL=1`: 의존성 설치를 건너뜀(빠른 재실행용)
+
+예시:
 ```
-set APP_NAME=?????�름 & run.bat combined
+set APP_NAME=내 앱 이름 & run.bat combined
 set DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1 & run.bat combined
 ```
 
+## 아키텍처
 
+- `/` (Django): 업로드 폼 및 기본 페이지
+- `/api` (FastAPI): 분석 API (예: `POST /api/eda/summary`)
+- `/legacy` (Flask): 예시용 헬스 체크
+- 정적 파일: `backend/staticfiles` (배포 전 `collectstatic` 필요)
+
+## 배포 팁
+
+- 정적 파일 수집
+```
+cd backend
+..\.venv\Scripts\python.exe manage.py collectstatic --noinput
+```
+- 권장 Uvicorn 실행 옵션
+```
+.\.venv\Scripts\python.exe -m uvicorn backend.asgi_combined:app --host 0.0.0.0 --port 8000 --workers 4 --proxy-headers
+```
+- 환경변수
+  - `DJANGO_SECRET_KEY`: 필수, 강한 랜덤 값
+  - `DJANGO_DEBUG=false`
+  - `DJANGO_ALLOWED_HOSTS=example.com,127.0.0.1`
+  - `DJANGO_CSRF_TRUSTED_ORIGINS=https://example.com`
+
+## 프로젝트 구조 (요약)
+```
+backend/
+  asgi_combined.py     # Django+FastAPI(+Flask) 통합 ASGI 앱
+  config/              # Django 설정/URL
+  studio/              # Django 앱(뷰/템플릿)
+  templates/           # 템플릿
+  static/              # 개발용 정적
+  staticfiles/         # collectstatic 출력(배포용)
+src/
+  data_ops.py, eda_ops.py, ...  # 분석 로직
+pages/, app.py                   # Streamlit Studio
+.run.bat                         # 통합 실행 스크립트
+requirements.txt
+```
