@@ -23,7 +23,8 @@ from flask import Flask
 
 
 # Django settings
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+# When launched from project root, ensure Django loads settings from backend/config
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "backend.config.settings")
 
 # Resolve paths
 BACKEND_DIR = Path(__file__).resolve().parent
