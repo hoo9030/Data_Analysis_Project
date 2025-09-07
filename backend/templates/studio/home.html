@@ -1,12 +1,12 @@
-<!doctype html>
-<html lang="ko">
+ï»¿<!doctype html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Studio | Home</title>
     <style>
       :root { --indigo:#4F46E5; --muted:#6B7280; }
-      body { font-family: Inter, 'Noto Sans KR', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 0; }
+      body { font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 0; }
       .container { max-width: 1080px; margin: 24px auto; padding: 0 16px; }
       .card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px 18px; background: linear-gradient(180deg,#ffffff,#f7f8fd); }
       .title { font-weight: 800; font-size: 22px; color: #111827; }
@@ -19,11 +19,11 @@
   <body>
     <div class="container">
       <div class="card">
-        <div class="title">?“Š Data Analysis Studio</div>
-        <div class="tagline">CSV ?Œì¼???…ë¡œ?œí•˜ë©?ê¸°ë³¸ ?”ì•½ ?•ë³´ë¥?ë°˜í™˜?©ë‹ˆ??</div>
+        <div class="title">Data Analysis Studio</div>
+        <div class="tagline">Upload a CSV and get a quick summary.</div>
         <form id="uform" class="upload">
           <input type="file" name="file" accept=".csv" />
-          <button class="btn" type="submit">?”ì•½ ?•ì¸</button>
+          <button class="btn" type="submit">Get Summary</button>
         </form>
       </div>
 
@@ -36,11 +36,11 @@
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const fd = new FormData(form);
-      out.innerHTML = '?”ì•½ ?ì„± ì¤?..';
+      out.innerHTML = 'Generating summary...';
       try {
         const res = await fetch('/api/eda/summary', { method: 'POST', body: fd });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || '?”ì²­ ?¤íŒ¨');
+        if (!res.ok) throw new Error(data.error || 'Request failed');
         out.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
       } catch (err) {
         out.innerHTML = `<pre>${err}</pre>`;
@@ -49,4 +49,3 @@
     </script>
   </body>
   </html>
-
