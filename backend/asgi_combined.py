@@ -261,36 +261,116 @@ async def sample_csv(rows: int = 500, seed: int = 42):
     return StreamingResponse(buf, media_type="text/csv; charset=utf-8", headers=headers)
 
 
-def _build_figure(df: pd.DataFrame, chart: str, x: str | None, y: str | None, color: str | None, bins: int = 30):
+def _build_figure(
+    df: pd.DataFrame,
+    chart: str,
+    x: str | None,
+    y: str | None,
+    color: str | None,
+    bins: int = 30,
+    *,
+    log_x: bool = False,
+    log_y: bool = False,
+    facet_row: str | None = None,
+    facet_col: str | None = None,
+    norm: str | None = None,
+    barmode: str | None = None,
+):
     chart = (chart or "").lower()
     if chart in ("histogram", "hist"):
         if not x:
             raise HTTPException(400, detail="x is required for histogram")
-        fig = px.histogram(df, x=x, color=color, nbins=bins)
+        fig = px.histogram(
+            df,
+            x=x,
+            color=color,
+            nbins=bins,
+            facet_row=facet_row,
+            facet_col=facet_col,
+            histnorm=norm if norm in ("percent", "probability", "probability density", "density") else None,
+            log_x=log_x,
+            log_y=log_y,
+        )
+        if barmode:
+            fig.update_layout(barmode=barmode)
     elif chart in ("bar", "bar_count", "count"):
         if not x:
             raise HTTPException(400, detail="x is required for bar_count")
-        fig = px.histogram(df, x=x, color=color)
+        fig = px.histogram(
+            df,
+            x=x,
+            color=color,
+            facet_row=facet_row,
+            facet_col=facet_col,
+            histnorm=norm if norm in ("percent", "probability", "probability density", "density") else None,
+            log_x=log_x,
+            log_y=log_y,
+        )
+        if barmode:
+            fig.update_layout(barmode=barmode)
     elif chart in ("scatter", "point"):
         if not (x and y):
             raise HTTPException(400, detail="x and y are required for scatter")
-        fig = px.scatter(df, x=x, y=y, color=color)
+        fig = px.scatter(
+            df,
+            x=x,
+            y=y,
+            color=color,
+            facet_row=facet_row,
+            facet_col=facet_col,
+            log_x=log_x,
+            log_y=log_y,
+        )
     elif chart == "box":
         if not y:
             raise HTTPException(400, detail="y is required for box")
-        fig = px.box(df, x=x, y=y, color=color)
+        fig = px.box(
+            df,
+            x=x,
+            y=y,
+            color=color,
+            facet_row=facet_row,
+            facet_col=facet_col,
+            log_x=log_x,
+            log_y=log_y,
+        )
     elif chart in ("line", "timeseries", "time"):
         if not (x and y):
             raise HTTPException(400, detail="x and y are required for line")
-        fig = px.line(df.sort_values(by=x), x=x, y=y, color=color)
+        fig = px.line(
+            df.sort_values(by=x),
+            x=x,
+            y=y,
+            color=color,
+            facet_row=facet_row,
+            facet_col=facet_col,
+            log_x=log_x,
+            log_y=log_y,
+        )
     elif chart in ("kde", "density", "density_contour"):
         if not (x and y):
             raise HTTPException(400, detail="x and y are required for density")
-        fig = px.density_contour(df, x=x, y=y, color=color)
+        fig = px.density_contour(
+            df,
+            x=x,
+            y=y,
+            color=color,
+            facet_row=facet_row,
+            facet_col=facet_col,
+        )
     elif chart in ("hexbin", "hist2d", "density_heatmap"):
         if not (x and y):
             raise HTTPException(400, detail="x and y are required for 2D density")
-        fig = px.density_heatmap(df, x=x, y=y, nbinsx=bins, nbinsy=bins, color_continuous_scale="Viridis")
+        fig = px.density_heatmap(
+            df,
+            x=x,
+            y=y,
+            nbinsx=bins,
+            nbinsy=bins,
+            facet_row=facet_row,
+            facet_col=facet_col,
+            color_continuous_scale="Viridis",
+        )
     else:
         raise HTTPException(400, detail="Unsupported chart. Use histogram|bar_count|scatter|box|line|density|hist2d")
     return fig.to_dict()
@@ -304,11 +384,30 @@ async def eda_visualize(
     y: str | None = Form(None),
     color: str | None = Form(None),
     bins: int = Form(30),
+    log_x: bool = Form(False),
+    log_y: bool = Form(False),
+    facet_row: str | None = Form(None),
+    facet_col: str | None = Form(None),
+    norm: str | None = Form(None),
+    barmode: str | None = Form(None),
 ):
     try:
         data = await file.read()
         df, _, _ = _smart_read_csv(data)
-        spec = _build_figure(df, chart=chart, x=x, y=y, color=color, bins=bins)
+        spec = _build_figure(
+            df,
+            chart=chart,
+            x=x,
+            y=y,
+            color=color,
+            bins=bins,
+            log_x=log_x,
+            log_y=log_y,
+            facet_row=facet_row,
+            facet_col=facet_col,
+            norm=norm,
+            barmode=barmode,
+        )
         return {"figure": spec}
     except HTTPException:
         raise
@@ -325,9 +424,28 @@ async def sample_visualize(
     bins: int = 30,
     rows: int = 500,
     seed: int = 42,
+    log_x: bool = False,
+    log_y: bool = False,
+    facet_row: str | None = None,
+    facet_col: str | None = None,
+    norm: str | None = None,
+    barmode: str | None = None,
 ):
     df = generate_sample_data(rows=rows, seed=seed)
-    spec = _build_figure(df, chart=chart, x=x, y=y, color=color, bins=bins)
+    spec = _build_figure(
+        df,
+        chart=chart,
+        x=x,
+        y=y,
+        color=color,
+        bins=bins,
+        log_x=log_x,
+        log_y=log_y,
+        facet_row=facet_row,
+        facet_col=facet_col,
+        norm=norm,
+        barmode=barmode,
+    )
     return {"figure": spec}
 
 

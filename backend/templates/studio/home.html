@@ -79,9 +79,33 @@
           <label>Color
             <select id="selColor"></select>
           </label>
+          <label>Facet Row
+            <select id="selFacetRow"></select>
+          </label>
+          <label>Facet Col
+            <select id="selFacetCol"></select>
+          </label>
           <label>Bins
             <input type="number" id="bins" value="30" min="5" max="100" step="1" style="width:80px;" />
           </label>
+          <label>Normalize
+            <select id="norm">
+              <option value="">(none)</option>
+              <option value="percent">percent</option>
+              <option value="probability">probability</option>
+            </select>
+          </label>
+          <label>Barmode
+            <select id="barmode">
+              <option value="">(auto)</option>
+              <option value="group">group</option>
+              <option value="stack">stack</option>
+              <option value="overlay">overlay</option>
+              <option value="relative">relative</option>
+            </select>
+          </label>
+          <label><input type="checkbox" id="logX" /> Log X</label>
+          <label><input type="checkbox" id="logY" /> Log Y</label>
           <button id="drawBtn" class="btn" type="button">Draw (Upload)</button>
           <button id="drawSampleBtn" class="btn" type="button">Draw (Sample)</button>
           <button id="vizPngBtn" class="btn" type="button">Download Chart PNG</button>
@@ -213,6 +237,8 @@
       const selX = document.getElementById('selX');
       const selY = document.getElementById('selY');
       const selColor = document.getElementById('selColor');
+      const selFacetRow = document.getElementById('selFacetRow');
+      const selFacetCol = document.getElementById('selFacetCol');
       const fill = (el, items, includeNone=false) => {
         el.innerHTML = '';
         if(includeNone){ const o=document.createElement('option'); o.value=''; o.textContent='(none)'; el.appendChild(o); }
@@ -221,6 +247,8 @@
       fill(selX, (ci.datetime||[]).concat(ci.numeric||[]).concat(ci.categorical||[]));
       fill(selY, ci.numeric||[], true);
       fill(selColor, (ci.categorical||[]), true);
+      fill(selFacetRow, (ci.categorical||[]), true);
+      fill(selFacetCol, (ci.categorical||[]), true);
 
       document.getElementById('drawBtn').onclick = async () => {
         if(!fileRef){ alert('Upload a CSV first.'); return; }
@@ -231,6 +259,12 @@
         fd.append('y', selY.value || '');
         fd.append('color', selColor.value || '');
         fd.append('bins', document.getElementById('bins').value);
+        fd.append('facet_row', selFacetRow.value || '');
+        fd.append('facet_col', selFacetCol.value || '');
+        fd.append('norm', document.getElementById('norm').value || '');
+        fd.append('barmode', document.getElementById('barmode').value || '');
+        fd.append('log_x', document.getElementById('logX').checked ? '1' : '0');
+        fd.append('log_y', document.getElementById('logY').checked ? '1' : '0');
         const res = await fetch('/api/eda/visualize', { method:'POST', body: fd });
         const data = await res.json();
         if(!res.ok){ alert(data.detail || data.error || 'Failed'); return; }
@@ -242,6 +276,12 @@
           chart: document.getElementById('chartType').value,
           x: selX.value || '', y: selY.value || '', color: selColor.value || '', bins: String(document.getElementById('bins').value)
         });
+        params.set('facet_row', selFacetRow.value || '');
+        params.set('facet_col', selFacetCol.value || '');
+        params.set('norm', document.getElementById('norm').value || '');
+        params.set('barmode', document.getElementById('barmode').value || '');
+        params.set('log_x', document.getElementById('logX').checked ? '1' : '0');
+        params.set('log_y', document.getElementById('logY').checked ? '1' : '0');
         const res = await fetch('/api/sample/visualize?' + params.toString());
         const data = await res.json();
         if(!res.ok){ alert(data.detail || data.error || 'Failed'); return; }
