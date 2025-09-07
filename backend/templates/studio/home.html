@@ -93,6 +93,18 @@
           <iframe id="profileFrame" srcdoc="" style="width:100%; height:100%; border:0;"></iframe>
         </div>
       </div>
+
+      <div id="crawlSection" style="margin-top:14px;">
+        <div class="section-title">Web Crawl</div>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <input id="crawlUrl" type="url" placeholder="https://example.com/data.csv" style="width:500px; padding:8px;" />
+          <button id="crawlCsvBtn" class="btn" type="button">Fetch CSV from URL</button>
+          <button id="crawlTableBtn" class="btn" type="button">Extract HTML Table</button>
+        </div>
+        <div id="crawlTableWrap" style="display:none; margin-top:8px;">
+          <table id="crawlTable"></table>
+        </div>
+      </div>
     </div>
 
     <script>
@@ -244,6 +256,37 @@
         const html = await res.text();
         if(!res.ok){ alert(html); return; }
         document.getElementById('profileFrame').setAttribute('srcdoc', html);
+      };
+
+      // Crawl handlers
+      document.getElementById('crawlCsvBtn').onclick = async () => {
+        const url = document.getElementById('crawlUrl').value.trim();
+        if(!url){ alert('Enter URL'); return; }
+        dbg.style.display='block'; dbg.textContent='Fetching CSV...';
+        const res = await fetch('/api/crawl/csv?'+ new URLSearchParams({url}));
+        const data = await res.json();
+        if(!res.ok){ alert(data.detail || 'Failed'); return; }
+        dbg.textContent = JSON.stringify(data, null, 2);
+        renderSummary(data);
+      };
+      document.getElementById('crawlTableBtn').onclick = async () => {
+        const url = document.getElementById('crawlUrl').value.trim();
+        if(!url){ alert('Enter URL'); return; }
+        dbg.style.display='block'; dbg.textContent='Fetching table...';
+        const res = await fetch('/api/crawl/table?'+ new URLSearchParams({url}));
+        const data = await res.json();
+        if(!res.ok){ alert(data.detail || 'Failed'); return; }
+        dbg.textContent = JSON.stringify(data, null, 2);
+        const wrap = document.getElementById('crawlTableWrap');
+        const tbl = document.getElementById('crawlTable');
+        wrap.style.display = 'block';
+        const rows = data.preview || [];
+        if(rows.length){
+          const cols = Object.keys(rows[0]);
+          tbl.innerHTML = '<tr>'+cols.map(c=>`<th>${escapeHtml(c)}</th>`).join('')+'</tr>' + rows.map(r=>'<tr>'+cols.map(c=>`<td>${escapeHtml(r[c])}</td>`).join('')+'</tr>').join('');
+        } else {
+          tbl.innerHTML = '<tr><td>(empty)</td></tr>';
+        }
       };
     }
     </script>

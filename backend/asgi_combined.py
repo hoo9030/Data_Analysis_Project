@@ -10,6 +10,9 @@ import os
 import sys
 import io
 from pathlib import Path
+import socket
+import ipaddress
+from urllib.parse import urlparse
 
 import pandas as pd
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
@@ -22,6 +25,8 @@ from django.core.asgi import get_asgi_application
 from flask import Flask
 import plotly.express as px
 from starlette.responses import Response
+import httpx
+from bs4 import BeautifulSoup
 
 
 # Django settings
@@ -133,6 +138,36 @@ def _smart_read_csv(
     if last_err:
         msg += f" Last error: {type(last_err).__name__}: {last_err}"
     raise HTTPException(status_code=400, detail=msg)
+
+
+# ----- Simple SSRF guard and fetch helpers ----------------------------------
+def _is_private_host(host: str) -> bool:
+    try:
+        infos = socket.getaddrinfo(host, None)
+        for family, _, _, _, sockaddr in infos:
+            ip = ipaddress.ip_address(sockaddr[0] if isinstance(sockaddr, tuple) else sockaddr)
+            if ip.is_private or ip.is_loopback or ip.is_link_local:
+                return True
+    except Exception:
+        return True
+    return False
+
+
+async def _fetch_bytes(url: str, *, timeout: float = 15.0) -> bytes:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        raise HTTPException(400, detail="Only http/https schemes are allowed")
+    if not parsed.netloc:
+        raise HTTPException(400, detail="Invalid URL")
+    host = parsed.hostname or ""
+    if _is_private_host(host):
+        raise HTTPException(400, detail="Refusing to fetch private/loopback addresses")
+
+    headers = {"User-Agent": "StudioBot/1.0 (+https://example.local)"}
+    async with httpx.AsyncClient(follow_redirects=True, timeout=timeout, headers=headers) as client:
+        resp = await client.get(url)
+        resp.raise_for_status()
+        return resp.content
 
 
 @api.post("/eda/summary")
@@ -314,6 +349,74 @@ async def profile_html(
         return Response(content=html, media_type="text/html; charset=utf-8")
     except Exception as e:
         raise HTTPException(400, detail=str(e))
+
+
+# ----- Crawling endpoints ----------------------------------------------------
+
+@api.get("/crawl/csv")
+async def crawl_csv(url: str, sep: str | None = None, decimal: str | None = None, encoding: str | None = None, max_corr_dims: int = 8):
+    data = await _fetch_bytes(url)
+    df, used_enc, used_sep = _smart_read_csv(data, sep=sep, decimal=decimal or ".", encoding=encoding)
+    info = basic_info(df)
+    ms_df = missing_summary(df)
+    ms_list = ms_df.to_dict(orient="records") if hasattr(ms_df, "to_dict") else []
+    num_cols, cat_cols, dt_cols = detect_column_types(df)
+    corr_payload = None
+    if len(num_cols) >= 2:
+        use_cols = num_cols[: max(2, min(max_corr_dims, len(num_cols)))]
+        corr = correlation_matrix(df[use_cols])
+        corr_payload = {"labels": list(corr.columns), "matrix": corr.values.tolist()}
+    return {
+        "source_url": url,
+        "rows": int(info.get("rows", len(df))),
+        "columns": int(info.get("columns", df.shape[1] if not df.empty else 0)),
+        "memory": str(info.get("memory", "")),
+        "columns_info": {"numeric": num_cols, "categorical": cat_cols, "datetime": dt_cols},
+        "missing": ms_list,
+        "corr": corr_payload,
+        "detected": {"encoding": used_enc, "sep": used_sep},
+    }
+
+
+@api.get("/crawl/table")
+async def crawl_table(url: str, index: int = 0, max_rows: int = 50):
+    data = await _fetch_bytes(url)
+    try:
+        # pandas.read_html requires lxml
+        tables = pd.read_html(io.BytesIO(data), flavor="lxml")
+    except Exception as e:
+        raise HTTPException(400, detail=f"Failed to parse HTML tables: {e}")
+    if not tables:
+        raise HTTPException(404, detail="No tables found")
+    if not (0 <= index < len(tables)):
+        raise HTTPException(400, detail=f"Index out of range (found {len(tables)} tables)")
+    df = tables[index]
+    preview = df.head(max(1, max_rows)).to_dict(orient="records")
+    return {"source_url": url, "table_index": index, "rows": len(df), "columns": df.shape[1], "preview": preview}
+
+
+@api.get("/crawl/html")
+async def crawl_html(url: str, selector: str | None = None, attr: str | None = None, max_items: int = 50):
+    data = await _fetch_bytes(url)
+    try:
+        soup = BeautifulSoup(data, "lxml")
+    except Exception as e:
+        raise HTTPException(400, detail=f"HTML parse error: {e}")
+    out: dict = {"source_url": url}
+    if selector:
+        nodes = soup.select(selector)[:max_items]
+        if attr:
+            items = [n.get(attr) for n in nodes]
+        else:
+            items = [n.get_text(strip=True) for n in nodes]
+        out["selector"] = selector
+        out["items"] = items
+    else:
+        out["title"] = (soup.title.string.strip() if soup.title and soup.title.string else None)
+        out["links"] = [a.get("href") for a in soup.select("a[href]")[:max_items]]
+        desc = soup.select_one('meta[name="description"]')
+        out["description"] = desc.get("content") if desc else None
+    return out
 
 
 # Optional: small Flask app mounted at '/legacy'
