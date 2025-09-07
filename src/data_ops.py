@@ -1,10 +1,8 @@
 import io
 import pandas as pd
 import numpy as np
-import streamlit as st
 
 
-@st.cache_data(show_spinner=False)
 def generate_sample_data(rows: int = 500, seed: int = 42) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     dates = pd.date_range("2023-01-01", periods=rows, freq="D")
@@ -25,7 +23,6 @@ def generate_sample_data(rows: int = 500, seed: int = 42) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(show_spinner=False)
 def load_csv(file, sep: str = ",", decimal: str = ".", encoding: str = "utf-8") -> pd.DataFrame:
     try:
         # Streamlit 업로드 객체 또는 파일 경로 모두 처리
@@ -35,8 +32,7 @@ def load_csv(file, sep: str = ",", decimal: str = ".", encoding: str = "utf-8") 
             df = pd.read_csv(buf, sep=sep, decimal=decimal, encoding=encoding)
         else:
             df = pd.read_csv(file, sep=sep, decimal=decimal, encoding=encoding)
-    except Exception as e:
-        st.error(f"CSV 로드 오류: {e}")
+    except Exception:
         return pd.DataFrame()
 
     # 날짜형 자동 추정 (이름/형태 기반)
@@ -56,4 +52,3 @@ def detect_column_types(df: pd.DataFrame):
     dt_cols = df.select_dtypes(include=["datetime", "datetimetz", "datetime64[ns]"]).columns.tolist()
     cat_cols = df.select_dtypes(exclude=["number", "datetime", "datetimetz", "datetime64[ns]"]).columns.tolist()
     return num_cols, cat_cols, dt_cols
-

@@ -1,14 +1,12 @@
 @echo off
 setlocal enableextensions enabledelayedexpansion
 
-REM Unified runner for Studio (Streamlit), Django, and Combined (ASGI)
+REM Unified runner for Combined ASGI (Django + FastAPI)
 REM Usage:
-REM   run.bat studio    - Launch Streamlit Studio
-REM   run.bat django    - Launch Django dev server
-REM   run.bat combined  - Launch combined ASGI (Django+FastAPI+Flask)
+REM   run.bat combined  - Launch combined ASGI (default)
 REM   run.bat install   - Upgrade pip and install requirements
 REM   run.bat migrate   - Run Django migrations
-REM   run.bat           - Interactive menu
+REM   run.bat help      - Show help
 
 set "ROOT=%~dp0"
 cd /d "%ROOT%"
@@ -58,16 +56,6 @@ if defined SKIP_INSTALL (
 )
 goto :eof
 
-REM APP_NAME fallback (from folder name), replacing _ and - with spaces
-:ensure_app_name
-for %%I in (.) do set "APP_NAME_FALLBACK=%%~nxI"
-if not defined APP_NAME (
-  set "APP_NAME=!APP_NAME_FALLBACK!"
-  set "APP_NAME=!APP_NAME:_= !"
-  set "APP_NAME=!APP_NAME:-= !"
-)
-goto :eof
-
 REM Default ALLOWED_HOSTS for Django
 :ensure_hosts
 if not defined DJANGO_ALLOWED_HOSTS set "DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1"
@@ -88,25 +76,6 @@ set EXITCODE=%ERRORLEVEL%
 popd
 exit /b %EXITCODE%
 
-:cmd_studio
-call :ensure_venv
-call :ensure_deps
-call :ensure_app_name
-echo [INFO] Launching Streamlit Studio (APP_NAME="%APP_NAME%").
-"%PYEXE%" -m streamlit run app.py
-exit /b %ERRORLEVEL%
-
-:cmd_django
-call :ensure_venv
-call :ensure_deps
-call :ensure_hosts
-echo [INFO] Launching Django dev server at http://%HOST%:%PORT%
-pushd backend
-"%PYEXE%" manage.py runserver %HOST%:%PORT%
-set EXITCODE=%ERRORLEVEL%
-popd
-exit /b %EXITCODE%
-
 :cmd_combined
 call :ensure_venv
 call :ensure_deps
@@ -117,46 +86,26 @@ echo [INFO] Launching combined ASGI at http://%HOST%:%PORT% %RELOAD_FLAG%
 "%PYEXE%" -m uvicorn backend.asgi_combined:app %RELOAD_FLAG% --host %HOST% --port %PORT%
 exit /b %ERRORLEVEL%
 
-REM Interactive menu ----------------------------------------------------------
-:menu
-echo.
-echo Select mode:
-echo   [1] Studio   (Streamlit)
-echo   [2] Django   (runserver)
-echo   [3] Combined (Uvicorn ASGI)
-set /p CHOICE=Enter choice [1-3]: 
-if "%CHOICE%"=="1" goto :cmd_studio
-if "%CHOICE%"=="2" goto :cmd_django
-if "%CHOICE%"=="3" goto :cmd_combined
-echo Invalid choice.
-exit /b 1
-
 REM Argument routing ----------------------------------------------------------
 :dispatch
 if "%~1"=="" goto :cmd_combined
 set ARG=%~1
-if /i "%ARG%"=="studio"   goto :cmd_studio
-if /i "%ARG%"=="django"   goto :cmd_django
 if /i "%ARG%"=="combined" goto :cmd_combined
 if /i "%ARG%"=="install"  goto :cmd_install
 if /i "%ARG%"=="migrate"  goto :cmd_migrate
-if /i "%ARG%"=="menu"     goto :menu
 if /i "%ARG%"=="help"     goto :help
 
-echo Usage: run.bat ^<studio^|django^|combined^|install^|migrate^|menu^|help^>
+echo Usage: run.bat ^<combined^|install^|migrate^|help^>
 exit /b 1
 
 endlocal
 
 :help
 echo.
-echo Usage: run.bat ^<studio^|django^|combined^|install^|migrate^|menu^|help^>
-echo   studio   - Launch Streamlit app
-echo   django   - Launch Django runserver (HOST/PORT env supported)
+echo Usage: run.bat ^<combined^|install^|migrate^|help^>
 echo   combined - Launch Uvicorn ASGI (HOST/PORT/RELOAD env supported)
 echo   install  - Create venv and install requirements
 echo   migrate  - Run Django migrations
-echo   menu     - Interactive menu
 echo.
 echo Env:
 echo   HOST=127.0.0.1  PORT=8000   RELOAD=1  DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1

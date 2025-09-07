@@ -20,20 +20,17 @@ run.bat combined
 
 다음 모드를 지원합니다:
 
-- Studio: `run.bat studio` — Streamlit 기반 Studio 실행
 - Django: `run.bat django` — Django 개발 서버 실행 (http://127.0.0.1:8000)
 - Combined: `run.bat combined` — Uvicorn으로 Django + FastAPI(및 Flask) 통합 실행
 - Install: `run.bat install` — 가상환경 생성/유지 및 의존성 설치
 - Migrate: `run.bat migrate` — Django 데이터베이스 마이그레이션
 
 공통 환경변수:
-- `APP_NAME`: 앱 표시 이름(미지정 시 폴더명에서 추론)
 - `DJANGO_ALLOWED_HOSTS`: Django 허용 호스트 목록(기본: localhost,127.0.0.1)
 - `SKIP_INSTALL=1`: 의존성 설치를 건너뜀(빠른 재실행용)
 
 예시:
 ```
-set APP_NAME=내 앱 이름 & run.bat combined
 set DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1 & run.bat combined
 ```
 
@@ -72,7 +69,10 @@ backend/
   staticfiles/         # collectstatic 출력(배포용)
 src/
   data_ops.py, eda_ops.py, ...  # 분석 로직
-pages/, app.py                   # Streamlit Studio
 .run.bat                         # 통합 실행 스크립트
 requirements.txt
 ```
+
+
+
+

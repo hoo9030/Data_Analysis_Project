@@ -32,6 +32,8 @@ PROJECT_ROOT = BACKEND_DIR.parent
 SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
 
 # Import reusable analysis function
 from eda_ops import basic_info  # type: ignore

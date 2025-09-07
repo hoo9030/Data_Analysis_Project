@@ -2,7 +2,6 @@ import hashlib
 from typing import Optional
 
 import pandas as pd
-import streamlit as st
 
 
 def _df_fingerprint(df: pd.DataFrame) -> str:
@@ -17,7 +16,6 @@ def _df_fingerprint(df: pd.DataFrame) -> str:
     return h.hexdigest()
 
 
-@st.cache_data(show_spinner=False)
 def generate_profile_html(
     df: pd.DataFrame,
     *,
@@ -40,4 +38,3 @@ def generate_profile_html(
     # Include fingerprint to make cache key sensitive to df changes
     _ = _df_fingerprint(df)
     return html
-
