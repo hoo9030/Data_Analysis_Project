@@ -44,12 +44,14 @@
       <div id="metrics" class="metrics" style="display:none;"></div>
 
       <div id="missingSection" style="display:none;">
-        <div class="section-title">Missing Summary</div>\n        <div style="margin:6px 0;"><button id="missingCsvBtn" class="btn" type="button">Download Missing CSV</button></div>
+        <div class="section-title">Missing Summary</div>
+        <div style="margin:6px 0;"><button id="missingCsvBtn" class="btn" type="button">Download Missing CSV</button></div>
         <table id="missingTbl"></table>
       </div>
 
       <div id="corrSection" style="display:none;">
-        <div class="section-title">Correlation Heatmap</div>\n        <div style="margin:6px 0;"><button id="corrPngBtn" class="btn" type="button">Download Heatmap PNG</button></div>
+        <div class="section-title">Correlation Heatmap</div>
+        <div style="margin:6px 0;"><button id="corrPngBtn" class="btn" type="button">Download Heatmap PNG</button></div>
         <div id="corrChart" style="height:420px;"></div>
       </div>
 
@@ -81,7 +83,8 @@
             <input type="number" id="bins" value="30" min="5" max="100" step="1" style="width:80px;" />
           </label>
           <button id="drawBtn" class="btn" type="button">Draw (Upload)</button>
-          <button id="drawSampleBtn" class="btn" type="button">Draw (Sample)</button>\n          <button id="vizPngBtn" class="btn" type="button">Download Chart PNG</button>
+          <button id="drawSampleBtn" class="btn" type="button">Draw (Sample)</button>
+          <button id="vizPngBtn" class="btn" type="button">Download Chart PNG</button>
         </div>
         <div id="vizChart" style="height:460px; margin-top:8px;"></div>
       </div>
@@ -111,7 +114,8 @@
     const form = document.getElementById('uform');
     const dbg = document.getElementById('debug');
     let fileRef = null;
-    let currentCols = null;\n    let lastSummary = null;
+    let currentCols = null;
+    let lastSummary = null;
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
