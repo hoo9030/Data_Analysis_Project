@@ -16,6 +16,7 @@ from fastapi import FastAPI, UploadFile, File, Form
 from starlette.applications import Starlette
 from starlette.routing import Mount
 from starlette.staticfiles import StaticFiles
+from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.wsgi import WSGIMiddleware
 from django.core.asgi import get_asgi_application
 from flask import Flask
@@ -70,13 +71,13 @@ def health():  # pragma: no cover - tiny example
 
 
 # Starlette root that mounts each framework
+static_dir = BACKEND_DIR / "staticfiles"
+if not static_dir.exists():
+    # Fallback to app static dir for dev
+    static_dir = BACKEND_DIR / "static"
+
 routes = [
-    # Static files for dev (Django static dir)
-    Mount(
-        "/static",
-        app=StaticFiles(directory=str(BACKEND_DIR / "static"), html=False),
-        name="static",
-    ),
+    Mount("/static", app=StaticFiles(directory=str(static_dir), html=False), name="static"),
     Mount("/api", app=api),
     Mount("/legacy", app=WSGIMiddleware(flask_app)),
     Mount("/", app=django_asgi),
@@ -84,3 +85,11 @@ routes = [
 
 app = Starlette(routes=routes)
 
+# CORS (allow local dev tools; tighten in production)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)

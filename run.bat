@@ -127,13 +127,14 @@ exit /b 1
 
 REM Argument routing ----------------------------------------------------------
 :dispatch
-if "%~1"=="" goto :menu
+if "%~1"=="" goto :cmd_combined
 set ARG=%~1
 if /i "%ARG%"=="studio"   goto :cmd_studio
 if /i "%ARG%"=="django"   goto :cmd_django
 if /i "%ARG%"=="combined" goto :cmd_combined
 if /i "%ARG%"=="install"  goto :cmd_install
 if /i "%ARG%"=="migrate"  goto :cmd_migrate
+if /i "%ARG%"=="menu"     goto :menu
 
 echo Usage: run.bat ^<studio^|django^|combined^|install^|migrate^>
 exit /b 1
