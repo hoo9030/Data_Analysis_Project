@@ -1,9 +1,10 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Studio | Home</title>
+    <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
     <style>
       :root { --indigo:#4F46E5; --muted:#6B7280; }
       body { font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 0; }
@@ -12,8 +13,16 @@
       .title { font-weight: 800; font-size: 22px; color: #111827; }
       .tagline { color: var(--muted); margin-top: 6px; }
       .upload { margin-top: 18px; display: flex; gap: 8px; align-items: center; }
-      .btn { background: var(--indigo); color:#fff; border:0; padding:10px 14px; border-radius:10px; cursor:pointer; }
-      pre { background:#0b1020; color:#e6edf3; padding:12px; border-radius:10px; overflow:auto; }
+      .btn { background: var(--indigo); color:#fff; border:0; padding:10px 14px; border-radius:10px; cursor:pointer; text-decoration:none; display:inline-block; }
+      .metrics { display:flex; gap:10px; margin-top:14px; }
+      .metric { border:1px solid #e5e7eb; border-radius:10px; padding:10px 12px; background:#fff; min-width:140px; }
+      .metric .label { color:#6B7280; font-size:12px; }
+      .metric .value { color:#111827; font-weight:700; font-size:18px; }
+      table { border-collapse: collapse; width: 100%; }
+      th, td { border: 1px solid #e5e7eb; padding: 6px 8px; text-align: left; }
+      th { background: #f3f4f6; }
+      .section-title { font-weight:700; font-size:16px; margin: 14px 0 8px; }
+      pre.debug { background:#0b1020; color:#e6edf3; padding:12px; border-radius:10px; overflow:auto; display:none; }
     </style>
   </head>
   <body>
@@ -25,40 +34,106 @@
           <input type="file" name="file" accept=".csv" />
           <button class="btn" type="submit">Get Summary</button>
         </form>
-              <div style="margin-top:10px; display:flex; gap:8px; align-items:center;">          <a class="btn" href="/api/sample/csv?rows=500&seed=42">Download Sample CSV</a>          <button id="sampleBtn" class="btn" type="button">Sample Summary</button>        </div>      </div>
+        <div style="margin-top:10px; display:flex; gap:8px; align-items:center;">
+          <a class="btn" href="/api/sample/csv?rows=500&seed=42">Download Sample CSV</a>
+          <button id="sampleBtn" class="btn" type="button">Sample Summary</button>
+        </div>
+      </div>
 
-      <div id="result" style="margin-top:16px;"></div>
+      <pre id="debug" class="debug"></pre>
+      <div id="metrics" class="metrics" style="display:none;"></div>
+
+      <div id="missingSection" style="display:none;">
+        <div class="section-title">Missing Summary</div>
+        <table id="missingTbl"></table>
+      </div>
+
+      <div id="corrSection" style="display:none;">
+        <div class="section-title">Correlation Heatmap</div>
+        <div id="corrChart" style="height:420px;"></div>
+      </div>
     </div>
 
     <script>
     const form = document.getElementById('uform');
-    const out = document.getElementById('result');
+    const dbg = document.getElementById('debug');
+
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const fd = new FormData(form);
-      out.innerHTML = 'Generating summary...';
+      dbg.style.display = 'block';
+      dbg.innerHTML = 'Generating summary...';
       try {
         const res = await fetch('/api/eda/summary', { method: 'POST', body: fd });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Request failed');
-        out.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+        dbg.textContent = JSON.stringify(data, null, 2);
+        renderSummary(data);
       } catch (err) {
-        out.innerHTML = `<pre>${err}</pre>`;
+        dbg.textContent = String(err);
       }
     });
-        document.getElementById('sampleBtn').addEventListener('click', async () => {
-      out.innerHTML = 'Generating sample summary...';
+
+    document.getElementById('sampleBtn').addEventListener('click', async () => {
+      dbg.style.display = 'block';
+      dbg.innerHTML = 'Generating sample summary...';
       try {
         const res = await fetch('/api/sample/summary');
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Request failed');
-        out.innerHTML = <pre></pre>;
+        dbg.textContent = JSON.stringify(data, null, 2);
+        renderSummary(data);
       } catch (err) {
-        out.innerHTML = <pre></pre>;
+        dbg.textContent = String(err);
       }
-    });</script>
+    });
+
+    function renderSummary(data){
+      // Metrics
+      const metrics = document.getElementById('metrics');
+      metrics.style.display = 'flex';
+      metrics.innerHTML = ''+
+        metricCard('Rows', formatValue(data.rows))+
+        metricCard('Columns', formatValue(data.columns))+
+        metricCard('Memory', data.memory ?? '');
+
+      // Missing table
+      const ms = Array.isArray(data.missing) ? data.missing : [];
+      const msWrap = document.getElementById('missingSection');
+      const tbl = document.getElementById('missingTbl');
+      if(ms.length){
+        msWrap.style.display = 'block';
+        tbl.innerHTML = '<tr><th>Column</th><th>Missing</th><th>Pct</th></tr>' +
+          ms.map(r => `<tr><td>${escapeHtml(r.column)}</td><td>${formatValue(r.missing_count)}</td><td>${(Number(r.missing_pct)*100).toFixed(2)}%</td></tr>`).join('');
+      } else {
+        msWrap.style.display = 'none';
+        tbl.innerHTML = '';
+      }
+
+      // Correlation heatmap
+      const corr = data.corr;
+      const corrWrap = document.getElementById('corrSection');
+      if(corr && corr.labels && corr.matrix){
+        corrWrap.style.display = 'block';
+        const trace = { z: corr.matrix, x: corr.labels, y: corr.labels, type: 'heatmap', colorscale: 'RdBu', reversescale: true };
+        const layout = { margin: {l: 60, r: 10, b: 60, t: 10}, xaxis: { automargin: true }, yaxis: { automargin: true } };
+        Plotly.newPlot('corrChart', [trace], layout, {displaylogo:false, responsive:true});
+      } else {
+        corrWrap.style.display = 'none';
+      }
+    }
+
+    function metricCard(label, value){
+      return `<div class="metric"><div class="label">${label}</div><div class="value">${value}</div></div>`
+    }
+    function formatValue(v){
+      const n = Number(v);
+      return Number.isFinite(n) ? n.toLocaleString() : String(v ?? '');
+    }
+    function escapeHtml(s){
+      return String(s ?? '').replace(/[&<>"]+/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    }
+    </script>
   </body>
   </html>
-
-
 
