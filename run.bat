@@ -15,6 +15,10 @@ cd /d "%ROOT%"
 
 set "VENV=.venv"
 set "PYEXE=%VENV%\Scripts\python.exe"
+set "HOST=%HOST%"
+if not defined HOST set "HOST=127.0.0.1"
+set "PORT=%PORT%"
+if not defined PORT set "PORT=8000"
 
 goto :dispatch
 
@@ -96,9 +100,9 @@ exit /b %ERRORLEVEL%
 call :ensure_venv
 call :ensure_deps
 call :ensure_hosts
-echo [INFO] Launching Django dev server at http://127.0.0.1:8000
+echo [INFO] Launching Django dev server at http://%HOST%:%PORT%
 pushd backend
-"%PYEXE%" manage.py runserver 127.0.0.1:8000
+"%PYEXE%" manage.py runserver %HOST%:%PORT%
 set EXITCODE=%ERRORLEVEL%
 popd
 exit /b %EXITCODE%
@@ -107,8 +111,10 @@ exit /b %EXITCODE%
 call :ensure_venv
 call :ensure_deps
 call :ensure_hosts
-echo [INFO] Launching combined ASGI at http://127.0.0.1:8000
-"%PYEXE%" -m uvicorn backend.asgi_combined:app --reload --host 127.0.0.1 --port 8000
+set "RELOAD_FLAG=--reload"
+if "%RELOAD%"=="0" set "RELOAD_FLAG="
+echo [INFO] Launching combined ASGI at http://%HOST%:%PORT% %RELOAD_FLAG%
+"%PYEXE%" -m uvicorn backend.asgi_combined:app %RELOAD_FLAG% --host %HOST% --port %PORT%
 exit /b %ERRORLEVEL%
 
 REM Interactive menu ----------------------------------------------------------
@@ -135,8 +141,23 @@ if /i "%ARG%"=="combined" goto :cmd_combined
 if /i "%ARG%"=="install"  goto :cmd_install
 if /i "%ARG%"=="migrate"  goto :cmd_migrate
 if /i "%ARG%"=="menu"     goto :menu
+if /i "%ARG%"=="help"     goto :help
 
-echo Usage: run.bat ^<studio^|django^|combined^|install^|migrate^>
+echo Usage: run.bat ^<studio^|django^|combined^|install^|migrate^|menu^|help^>
 exit /b 1
 
 endlocal
+
+:help
+echo.
+echo Usage: run.bat ^<studio^|django^|combined^|install^|migrate^|menu^|help^>
+echo   studio   - Launch Streamlit app
+echo   django   - Launch Django runserver (HOST/PORT env supported)
+echo   combined - Launch Uvicorn ASGI (HOST/PORT/RELOAD env supported)
+echo   install  - Create venv and install requirements
+echo   migrate  - Run Django migrations
+echo   menu     - Interactive menu
+echo.
+echo Env:
+echo   HOST=127.0.0.1  PORT=8000   RELOAD=1  DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
+exit /b 0
