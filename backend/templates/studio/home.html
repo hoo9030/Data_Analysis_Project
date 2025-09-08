@@ -102,6 +102,7 @@
 
       <div id="previewSection" style="display:none;">
         <div class="section-title">Preview</div>
+        <div style="margin:6px 0;"><button id="previewCsvBtn" class="btn" type="button">Download Preview CSV</button></div>
         <table id="previewTbl"></table>
       </div>
 
@@ -285,6 +286,21 @@
         const thead = '<tr>' + cols.map(c=>`<th>${escapeHtml(c)}</th>`).join('') + '</tr>';
         const tbody = pv.map(r=>'<tr>' + cols.map(c=>`<td>${escapeHtml(r[c])}</td>`).join('') + '</tr>').join('');
         ptbl.innerHTML = thead + tbody;
+        const btn = document.getElementById('previewCsvBtn');
+        if(btn){
+          btn.onclick = () => {
+            if(!pv.length){ alert('No preview data.'); return; }
+            try {
+              const csv = toCsvFromObjects(pv);
+              const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+              const a = document.createElement('a');
+              a.href = URL.createObjectURL(blob);
+              a.download = 'preview.csv';
+              document.body.appendChild(a); a.click(); a.remove();
+              setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+            } catch(err){ alert('Failed to export CSV: '+ String(err)); }
+          };
+        }
       } else {
         psec.style.display = 'none';
         ptbl.innerHTML = '';
@@ -297,6 +313,18 @@
     function formatValue(v){
       const n = Number(v);
       return Number.isFinite(n) ? n.toLocaleString() : String(v ?? '');
+    }
+    function toCsvFromObjects(rows){
+      if(!Array.isArray(rows) || rows.length === 0) return '';
+      const cols = Object.keys(rows[0] || {});
+      const esc = (v) => {
+        const s = String(v ?? '');
+        return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      };
+      const lines = [];
+      lines.push(cols.map(esc).join(','));
+      for(const r of rows){ lines.push(cols.map(c => esc(r[c])).join(',')); }
+      return lines.join('\n');
     }
     function escapeHtml(s){
       return String(s ?? '').replace(/[&<>"]+/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
