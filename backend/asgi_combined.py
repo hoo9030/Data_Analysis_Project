@@ -170,6 +170,9 @@ async def _fetch_bytes(url: str, *, timeout: float = 15.0) -> bytes:
         return resp.content
 
 
+ALLOWED_CORR = {"pearson", "spearman", "kendall"}
+
+
 @api.post("/eda/summary")
 async def eda_summary(
     file: UploadFile = File(...),
@@ -177,6 +180,7 @@ async def eda_summary(
     decimal: str = Form("."),
     encoding: str = Form("utf-8"),
     max_corr_dims: int = Form(8),
+    corr_method: str = Form("pearson"),
 ):
     data = await file.read()
     # Blank values act as auto-detect
@@ -194,10 +198,13 @@ async def eda_summary(
     # Column types
     num_cols, cat_cols, dt_cols = detect_column_types(df)
     # Correlation (limit dimensions)
+    method = (corr_method or "pearson").lower()
+    if method not in ALLOWED_CORR:
+        raise HTTPException(400, detail=f"Invalid corr_method. Use one of {sorted(ALLOWED_CORR)}")
     corr_payload = None
     if len(num_cols) >= 2:
         use_cols = num_cols[: max(2, min(max_corr_dims, len(num_cols)))]
-        corr = correlation_matrix(df[use_cols])
+        corr = correlation_matrix(df[use_cols], method=method)
         corr_payload = {
             "labels": list(corr.columns),
             "matrix": corr.values.tolist(),
@@ -214,21 +221,25 @@ async def eda_summary(
         },
         "missing": ms_list,
         "corr": corr_payload,
+        "corr_method": method,
         "detected": {"encoding": used_enc, "sep": used_sep},
     }
 
 
 @api.get("/sample/summary")
-async def sample_summary(rows: int = 500, seed: int = 42, max_corr_dims: int = 8):
+async def sample_summary(rows: int = 500, seed: int = 42, max_corr_dims: int = 8, corr_method: str = "pearson"):
     df = generate_sample_data(rows=rows, seed=seed)
     info = basic_info(df)
     ms_df = missing_summary(df)
     ms_list = ms_df.to_dict(orient="records")
     num_cols, cat_cols, dt_cols = detect_column_types(df)
+    method = (corr_method or "pearson").lower()
+    if method not in ALLOWED_CORR:
+        raise HTTPException(400, detail=f"Invalid corr_method. Use one of {sorted(ALLOWED_CORR)}")
     corr_payload = None
     if len(num_cols) >= 2:
         use_cols = num_cols[: max(2, min(max_corr_dims, len(num_cols)))]
-        corr = correlation_matrix(df[use_cols])
+        corr = correlation_matrix(df[use_cols], method=method)
         corr_payload = {
             "labels": list(corr.columns),
             "matrix": corr.values.tolist(),
@@ -244,6 +255,7 @@ async def sample_summary(rows: int = 500, seed: int = 42, max_corr_dims: int = 8
         },
         "missing": ms_list,
         "corr": corr_payload,
+        "corr_method": method,
     }
 
 
@@ -371,8 +383,101 @@ def _build_figure(
             facet_col=facet_col,
             color_continuous_scale="Viridis",
         )
+    elif chart in ("violin", "violinplot"):
+        if not y:
+            raise HTTPException(400, detail="y is required for violin")
+        fig = px.violin(
+            df,
+            x=x,
+            y=y,
+            color=color,
+            facet_row=facet_row,
+            facet_col=facet_col,
+            box=True,
+            points=False,
+        )
+    elif chart in ("scatter_matrix", "splom"):
+        # Dimensions: parse from x if comma-separated, else auto-pick top N numeric
+        dims: list[str]
+        if x and "," in x:
+            dims = [c.strip() for c in x.split(",") if c.strip() in df.columns]
+        else:
+            num_cols = df.select_dtypes(include=["number"]).columns.tolist()
+            n = max(2, min(int(bins or 4), len(num_cols)))
+            dims = num_cols[:n]
+        if len(dims) < 2:
+            raise HTTPException(400, detail="Need at least 2 numeric columns for scatter_matrix")
+        fig = px.scatter_matrix(
+            df,
+            dimensions=dims,
+            color=color if (color and color in df.columns) else None,
+            opacity=0.7,
+        )
+        fig.update_traces(diagonal_visible=True)
+    elif chart in ("feature_importance", "feat_imp", "importance"):
+        # Compute simple feature importances using RandomForest.
+        # y (target) is required.
+        if not y or y not in df.columns:
+            raise HTTPException(400, detail="y (target) is required for feature_importance")
+        try:
+            import numpy as np  # type: ignore
+            from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier  # type: ignore
+            from sklearn.preprocessing import LabelEncoder  # type: ignore
+        except Exception as e:
+            raise HTTPException(500, detail=f"scikit-learn import error: {e}")
+
+        dfx = df.copy()
+        # Select numeric features, exclude target
+        feat_cols = dfx.select_dtypes(include=["number"]).columns.tolist()
+        if y in feat_cols:
+            feat_cols = [c for c in feat_cols if c != y]
+        # If no numeric features, try encoding categoricals (simple label encoding)
+        if not feat_cols:
+            for col in dfx.columns:
+                if col == y:
+                    continue
+                if dfx[col].dtype == object:
+                    try:
+                        dfx[col] = LabelEncoder().fit_transform(dfx[col].astype(str))
+                    except Exception:
+                        pass
+            feat_cols = [c for c in dfx.columns if c != y]
+        if len(feat_cols) < 1:
+            raise HTTPException(400, detail="No usable feature columns for importance computation")
+
+        dfx = dfx[feat_cols + [y]].dropna()
+        if dfx.empty:
+            raise HTTPException(400, detail="No rows left after dropping NA for importance computation")
+        X = dfx[feat_cols].values
+        yv = dfx[y].values
+
+        # Choose model type
+        is_classification = dfx[y].dtype == object or str(dfx[y].dtype).startswith("bool") or dfx[y].nunique() < max(20, int(len(dfx) * 0.05))
+        if is_classification:
+            # Encode target labels
+            try:
+                y_enc = LabelEncoder().fit_transform(yv.astype(str))
+            except Exception:
+                # Fallback: coerce
+                y_enc = LabelEncoder().fit_transform(yv.astype("category"))
+            model = RandomForestClassifier(n_estimators=200, random_state=42, n_jobs=-1)
+            model.fit(X, y_enc)
+        else:
+            model = RandomForestRegressor(n_estimators=200, random_state=42, n_jobs=-1)
+            model.fit(X, yv)
+
+        importances = getattr(model, "feature_importances_", None)
+        if importances is None:
+            raise HTTPException(500, detail="Model did not provide feature_importances_")
+
+        pairs = sorted(zip(feat_cols, importances), key=lambda t: t[1], reverse=True)
+        top_n = max(1, min(int(bins or 20), len(pairs)))
+        pairs = pairs[:top_n]
+        f_names = [p[0] for p in pairs][::-1]
+        f_vals = [float(p[1]) for p in pairs][::-1]
+        fig = px.bar(x=f_vals, y=f_names, orientation="h", labels={"x": "importance", "y": "feature"})
     else:
-        raise HTTPException(400, detail="Unsupported chart. Use histogram|bar_count|scatter|box|line|density|hist2d")
+        raise HTTPException(400, detail="Unsupported chart. Use histogram|bar_count|scatter|box|line|density|hist2d|violin|scatter_matrix|feature_importance")
     return fig.to_dict()
 
 
@@ -472,17 +577,20 @@ async def profile_html(
 # ----- Crawling endpoints ----------------------------------------------------
 
 @api.get("/crawl/csv")
-async def crawl_csv(url: str, sep: str | None = None, decimal: str | None = None, encoding: str | None = None, max_corr_dims: int = 8):
+async def crawl_csv(url: str, sep: str | None = None, decimal: str | None = None, encoding: str | None = None, max_corr_dims: int = 8, corr_method: str = "pearson"):
     data = await _fetch_bytes(url)
     df, used_enc, used_sep = _smart_read_csv(data, sep=sep, decimal=decimal or ".", encoding=encoding)
     info = basic_info(df)
     ms_df = missing_summary(df)
     ms_list = ms_df.to_dict(orient="records") if hasattr(ms_df, "to_dict") else []
     num_cols, cat_cols, dt_cols = detect_column_types(df)
+    method = (corr_method or "pearson").lower()
+    if method not in ALLOWED_CORR:
+        raise HTTPException(400, detail=f"Invalid corr_method. Use one of {sorted(ALLOWED_CORR)}")
     corr_payload = None
     if len(num_cols) >= 2:
         use_cols = num_cols[: max(2, min(max_corr_dims, len(num_cols)))]
-        corr = correlation_matrix(df[use_cols])
+        corr = correlation_matrix(df[use_cols], method=method)
         corr_payload = {"labels": list(corr.columns), "matrix": corr.values.tolist()}
     return {
         "source_url": url,
@@ -492,6 +600,7 @@ async def crawl_csv(url: str, sep: str | None = None, decimal: str | None = None
         "columns_info": {"numeric": num_cols, "categorical": cat_cols, "datetime": dt_cols},
         "missing": ms_list,
         "corr": corr_payload,
+        "corr_method": method,
         "detected": {"encoding": used_enc, "sep": used_sep},
     }
 

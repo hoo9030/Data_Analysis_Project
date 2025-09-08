@@ -32,6 +32,13 @@
         <div class="tagline">Upload a CSV or use a sample dataset to get a quick summary.</div>
         <form id="uform" class="upload">
           <input type="file" name="file" accept=".csv" />
+          <label>Corr
+            <select id="corrMethod" name="corr_method">
+              <option value="pearson" selected>Pearson</option>
+              <option value="spearman">Spearman</option>
+              <option value="kendall">Kendall</option>
+            </select>
+          </label>
           <button class="btn" type="submit">Get Summary</button>
         </form>
         <div style="margin-top:10px; display:flex; gap:8px; align-items:center;">
@@ -67,7 +74,7 @@
             <select id="chartType">
               <option value="histogram">Histogram</option>
               <option value="scatter">Scatter</option>
-              <option value="box">Box</option>              <option value="bar_count">Bar Count</option>              <option value="line">Line</option>              <option value="density_contour">KDE (Contour)</option>              <option value="density_heatmap">2D Density</option>
+              <option value="box">Box</option>              <option value="bar_count">Bar Count</option>              <option value="line">Line</option>              <option value="density_contour">KDE (Contour)</option>              <option value="density_heatmap">2D Density</option>              <option value="violin">Violin</option>              <option value="scatter_matrix">Scatter Matrix</option>              <option value="feature_importance">Feature Importance</option>
             </select>
           </label>
           <label>X
@@ -162,7 +169,8 @@
       dbg.style.display = 'block';
       dbg.innerHTML = 'Generating sample summary...';
       try {
-        const res = await fetch('/api/sample/summary');
+        const cm = document.getElementById('corrMethod').value;
+        const res = await fetch('/api/sample/summary?'+ new URLSearchParams({corr_method: cm}));
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Request failed');
         dbg.textContent = JSON.stringify(data, null, 2);
@@ -355,7 +363,8 @@
         const url = document.getElementById('crawlUrl').value.trim();
         if(!url){ alert('Enter URL'); return; }
         dbg.style.display='block'; dbg.textContent='Fetching CSV...';
-        const res = await fetch('/api/crawl/csv?'+ new URLSearchParams({url}));
+        const cm = document.getElementById('corrMethod').value;
+        const res = await fetch('/api/crawl/csv?'+ new URLSearchParams({url, corr_method: cm}));
         const data = await res.json();
         if(!res.ok){ alert(data.detail || 'Failed'); return; }
         dbg.textContent = JSON.stringify(data, null, 2);
