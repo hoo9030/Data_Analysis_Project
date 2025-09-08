@@ -222,14 +222,34 @@
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const fd = new FormData(form);
       fileRef = form.querySelector('input[name="file"]').files[0] || null;
+      if(!fileRef){ alert('Upload a CSV first.'); return; }
       dbg.style.display = 'block';
       dbg.innerHTML = 'Generating summary...';
       try {
-        const res = await fetch('/api/eda/summary', { method: 'POST', body: fd });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Request failed');
+        const spec = {
+          source: { type: 'upload' },
+          filters: {
+            filter_query: document.getElementById('filterQuery').value || '',
+            include_cols: document.getElementById('includeCols').value || '',
+            limit_rows: document.getElementById('limitRows').value || ''
+          },
+          aggregation: {
+            group_by: document.getElementById('groupBy').value || '',
+            agg: document.getElementById('aggFunc').value || '',
+            value_cols: document.getElementById('valueCols').value || '',
+            pivot_col: document.getElementById('pivotCol').value || '',
+            pivot_fill: document.getElementById('pivotFill').value || ''
+          },
+          summary: { corr_method: document.getElementById('corrMethod').value, max_corr_dims: 8 }
+        };
+        const fd = new FormData();
+        fd.append('file', fileRef);
+        fd.append('spec', JSON.stringify(spec));
+        const res = await fetch('/api/run', { method: 'POST', body: fd });
+        const out = await res.json();
+        if (!res.ok) throw new Error(out.detail || out.error || 'Request failed');
+        const data = out.summary || {};
         dbg.textContent = JSON.stringify(data, null, 2);
         renderSummary(data);
       } catch (err) {
@@ -241,18 +261,28 @@
       dbg.style.display = 'block';
       dbg.innerHTML = 'Generating sample summary...';
       try {
-        const cm = document.getElementById('corrMethod').value;
-        const fq = document.getElementById('filterQuery').value;
-        const ic = document.getElementById('includeCols').value;
-        const lr = document.getElementById('limitRows').value;
-        const gb = document.getElementById('groupBy').value;
-        const ag = document.getElementById('aggFunc').value;
-        const vc = document.getElementById('valueCols').value;
-        const pv = document.getElementById('pivotCol').value;
-        const pf = document.getElementById('pivotFill').value;
-        const res = await fetch('/api/sample/summary?'+ new URLSearchParams({corr_method: cm, filter_query: fq, include_cols: ic, limit_rows: lr, group_by: gb, agg: ag, value_cols: vc, pivot_col: pv, pivot_fill: pf}));
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Request failed');
+        const spec = {
+          source: { type: 'sample', rows: 500, seed: 42 },
+          filters: {
+            filter_query: document.getElementById('filterQuery').value || '',
+            include_cols: document.getElementById('includeCols').value || '',
+            limit_rows: document.getElementById('limitRows').value || ''
+          },
+          aggregation: {
+            group_by: document.getElementById('groupBy').value || '',
+            agg: document.getElementById('aggFunc').value || '',
+            value_cols: document.getElementById('valueCols').value || '',
+            pivot_col: document.getElementById('pivotCol').value || '',
+            pivot_fill: document.getElementById('pivotFill').value || ''
+          },
+          summary: { corr_method: document.getElementById('corrMethod').value, max_corr_dims: 8 }
+        };
+        const fd = new FormData();
+        fd.append('spec', JSON.stringify(spec));
+        const res = await fetch('/api/run', { method: 'POST', body: fd });
+        const out = await res.json();
+        if (!res.ok) throw new Error(out.detail || out.error || 'Request failed');
+        const data = out.summary || {};
         dbg.textContent = JSON.stringify(data, null, 2);
         renderSummary(data);
       } catch (err) {
@@ -407,57 +437,66 @@
 
       document.getElementById('drawBtn').onclick = async () => {
         if(!fileRef){ alert('Upload a CSV first.'); return; }
+        const spec = {
+          source: { type: 'upload' },
+          filters: {
+            filter_query: document.getElementById('filterQuery').value || '',
+            include_cols: document.getElementById('includeCols').value || '',
+            limit_rows: document.getElementById('limitRows').value || ''
+          },
+          aggregation: {
+            group_by: document.getElementById('groupBy').value || '',
+            agg: document.getElementById('aggFunc').value || '',
+            value_cols: document.getElementById('valueCols').value || '',
+            pivot_col: document.getElementById('pivotCol').value || '',
+            pivot_fill: document.getElementById('pivotFill').value || ''
+          },
+          visualize: {
+            chart: document.getElementById('chartType').value,
+            x: selX.value || '', y: selY.value || '', color: selColor.value || '', bins: Number(document.getElementById('bins').value),
+            facet_row: selFacetRow.value || '', facet_col: selFacetCol.value || '', norm: document.getElementById('norm').value || '', barmode: document.getElementById('barmode').value || '',
+            log_x: document.getElementById('logX').checked, log_y: document.getElementById('logY').checked
+          }
+        };
         const fd = new FormData();
         fd.append('file', fileRef);
-        fd.append('chart', document.getElementById('chartType').value);
-        fd.append('x', selX.value || '');
-        fd.append('y', selY.value || '');
-        fd.append('color', selColor.value || '');
-        fd.append('bins', document.getElementById('bins').value);
-        fd.append('facet_row', selFacetRow.value || '');
-        fd.append('facet_col', selFacetCol.value || '');
-        fd.append('norm', document.getElementById('norm').value || '');
-        fd.append('barmode', document.getElementById('barmode').value || '');
-        fd.append('log_x', document.getElementById('logX').checked ? '1' : '0');
-        fd.append('log_y', document.getElementById('logY').checked ? '1' : '0');
-        // Filters + Aggregation
-        fd.append('filter_query', document.getElementById('filterQuery').value || '');
-        fd.append('include_cols', document.getElementById('includeCols').value || '');
-        fd.append('limit_rows', document.getElementById('limitRows').value || '');
-        fd.append('group_by', document.getElementById('groupBy').value || '');
-        fd.append('agg', document.getElementById('aggFunc').value || '');
-        fd.append('value_cols', document.getElementById('valueCols').value || '');
-        fd.append('pivot_col', document.getElementById('pivotCol').value || '');
-        fd.append('pivot_fill', document.getElementById('pivotFill').value || '');
-        const res = await fetch('/api/eda/visualize', { method:'POST', body: fd });
+        fd.append('spec', JSON.stringify(spec));
+        const res = await fetch('/api/run', { method:'POST', body: fd });
         const data = await res.json();
         if(!res.ok){ alert(data.detail || data.error || 'Failed'); return; }
-        Plotly.newPlot('vizChart', (data.figure && data.figure.data) ? data.figure.data : [], (data.figure && data.figure.layout) ? data.figure.layout : {}, {displaylogo:false, responsive:true});
+        const fig = (data.visualize && data.visualize.figure) ? data.visualize.figure : {};
+        Plotly.newPlot('vizChart', fig.data || [], fig.layout || {}, {displaylogo:false, responsive:true});
       };
 
       document.getElementById('drawSampleBtn').onclick = async () => {
-        const params = new URLSearchParams({
-          chart: document.getElementById('chartType').value,
-          x: selX.value || '', y: selY.value || '', color: selColor.value || '', bins: String(document.getElementById('bins').value)
-        });
-        params.set('facet_row', selFacetRow.value || '');
-        params.set('facet_col', selFacetCol.value || '');
-        params.set('norm', document.getElementById('norm').value || '');
-        params.set('barmode', document.getElementById('barmode').value || '');
-        params.set('log_x', document.getElementById('logX').checked ? '1' : '0');
-        params.set('log_y', document.getElementById('logY').checked ? '1' : '0');
-        params.set('filter_query', document.getElementById('filterQuery').value || '');
-        params.set('include_cols', document.getElementById('includeCols').value || '');
-        params.set('limit_rows', document.getElementById('limitRows').value || '');
-        params.set('group_by', document.getElementById('groupBy').value || '');
-        params.set('agg', document.getElementById('aggFunc').value || '');
-        params.set('value_cols', document.getElementById('valueCols').value || '');
-        params.set('pivot_col', document.getElementById('pivotCol').value || '');
-        params.set('pivot_fill', document.getElementById('pivotFill').value || '');
-        const res = await fetch('/api/sample/visualize?' + params.toString());
+        const spec = {
+          source: { type: 'sample', rows: 500, seed: 42 },
+          filters: {
+            filter_query: document.getElementById('filterQuery').value || '',
+            include_cols: document.getElementById('includeCols').value || '',
+            limit_rows: document.getElementById('limitRows').value || ''
+          },
+          aggregation: {
+            group_by: document.getElementById('groupBy').value || '',
+            agg: document.getElementById('aggFunc').value || '',
+            value_cols: document.getElementById('valueCols').value || '',
+            pivot_col: document.getElementById('pivotCol').value || '',
+            pivot_fill: document.getElementById('pivotFill').value || ''
+          },
+          visualize: {
+            chart: document.getElementById('chartType').value,
+            x: selX.value || '', y: selY.value || '', color: selColor.value || '', bins: Number(document.getElementById('bins').value),
+            facet_row: selFacetRow.value || '', facet_col: selFacetCol.value || '', norm: document.getElementById('norm').value || '', barmode: document.getElementById('barmode').value || '',
+            log_x: document.getElementById('logX').checked, log_y: document.getElementById('logY').checked
+          }
+        };
+        const fd = new FormData();
+        fd.append('spec', JSON.stringify(spec));
+        const res = await fetch('/api/run', { method:'POST', body: fd });
         const data = await res.json();
         if(!res.ok){ alert(data.detail || data.error || 'Failed'); return; }
-        Plotly.newPlot('vizChart', (data.figure && data.figure.data) ? data.figure.data : [], (data.figure && data.figure.layout) ? data.figure.layout : {}, {displaylogo:false, responsive:true});
+        const fig = (data.visualize && data.visualize.figure) ? data.visualize.figure : {};
+        Plotly.newPlot('vizChart', fig.data || [], fig.layout || {}, {displaylogo:false, responsive:true});
       };
 
       // Modeling controls
@@ -473,28 +512,23 @@
       fillTargets(ci);
       document.getElementById('trainBtn').onclick = async () => {
         if(!fileRef){ alert('Upload a CSV first.'); return; }
+        const spec = { source: { type:'upload' }, model: { target: modelTarget.value || '', cv: Number(document.getElementById('cvFolds').value || '5') } };
         const fd = new FormData();
         fd.append('file', fileRef);
-        fd.append('target', modelTarget.value || '');
-        fd.append('cv', document.getElementById('cvFolds').value || '5');
-        // Filters
-        fd.append('filter_query', document.getElementById('filterQuery').value || '');
-        fd.append('include_cols', document.getElementById('includeCols').value || '');
-        fd.append('limit_rows', document.getElementById('limitRows').value || '');
-        const res = await fetch('/api/model/evaluate', { method:'POST', body: fd });
-        const data = await res.json();
-        if(!res.ok){ alert(data.detail || data.error || 'Failed'); return; }
-        renderModeling(data);
+        fd.append('spec', JSON.stringify(spec));
+        const res = await fetch('/api/run', { method:'POST', body: fd });
+        const out = await res.json();
+        if(!res.ok){ alert(out.detail || out.error || 'Failed'); return; }
+        renderModeling(out.model || {});
       };
       document.getElementById('trainSampleBtn').onclick = async () => {
-        const params = new URLSearchParams({ target: modelTarget.value || '', cv: String(document.getElementById('cvFolds').value || '5') });
-        params.set('filter_query', document.getElementById('filterQuery').value || '');
-        params.set('include_cols', document.getElementById('includeCols').value || '');
-        params.set('limit_rows', document.getElementById('limitRows').value || '');
-        const res = await fetch('/api/sample/model/evaluate?' + params.toString());
-        const data = await res.json();
-        if(!res.ok){ alert(data.detail || data.error || 'Failed'); return; }
-        renderModeling(data);
+        const spec = { source: { type:'sample', rows: 500, seed: 42 }, model: { target: modelTarget.value || '', cv: Number(document.getElementById('cvFolds').value || '5') } };
+        const fd = new FormData();
+        fd.append('spec', JSON.stringify(spec));
+        const res = await fetch('/api/run', { method:'POST', body: fd });
+        const out = await res.json();
+        if(!res.ok){ alert(out.detail || out.error || 'Failed'); return; }
+        renderModeling(out.model || {});
       };
 
       function renderModeling(m){
@@ -578,14 +612,14 @@
       document.getElementById('profileSection').style.display = 'block';
       document.getElementById('profileBtn').onclick = async () => {
         if(!fileRef){ alert('Upload a CSV first.'); return; }
+        const spec = { source: { type:'upload' }, profile: { minimal: true, sample_n: 2000 } };
         const fd = new FormData();
         fd.append('file', fileRef);
-        fd.append('minimal', '1');
-        fd.append('sample_n', '2000');
-        const res = await fetch('/api/profile/html', { method:'POST', body: fd });
-        const html = await res.text();
-        if(!res.ok){ alert(html); return; }
-        document.getElementById('profileFrame').setAttribute('srcdoc', html);
+        fd.append('spec', JSON.stringify(spec));
+        const res = await fetch('/api/run', { method:'POST', body: fd });
+        const data = await res.json();
+        if(!res.ok){ alert(data.detail || 'Failed'); return; }
+        document.getElementById('profileFrame').setAttribute('srcdoc', data.profile_html || '<p>No content</p>');
       };
 
       // Crawl handlers
@@ -594,17 +628,16 @@
         if(!url){ alert('Enter URL'); return; }
         dbg.style.display='block'; dbg.textContent='Fetching CSV...';
         const cm = document.getElementById('corrMethod').value;
-        const fq = document.getElementById('filterQuery').value;
-        const ic = document.getElementById('includeCols').value;
-        const lr = document.getElementById('limitRows').value;
-        const gb = document.getElementById('groupBy').value;
-        const ag = document.getElementById('aggFunc').value;
-        const vc = document.getElementById('valueCols').value;
-        const pv = document.getElementById('pivotCol').value;
-        const pf = document.getElementById('pivotFill').value;
-        const res = await fetch('/api/crawl/csv?'+ new URLSearchParams({url, corr_method: cm, filter_query: fq, include_cols: ic, limit_rows: lr, group_by: gb, agg: ag, value_cols: vc, pivot_col: pv, pivot_fill: pf}));
-        const data = await res.json();
-        if(!res.ok){ alert(data.detail || 'Failed'); return; }
+        const spec = {
+          source: { type:'url', url },
+          summary: { corr_method: cm, max_corr_dims: 8 }
+        };
+        const fd = new FormData();
+        fd.append('spec', JSON.stringify(spec));
+        const res = await fetch('/api/run', { method:'POST', body: fd });
+        const out = await res.json();
+        if(!res.ok){ alert(out.detail || 'Failed'); return; }
+        const data = out.summary || {};
         dbg.textContent = JSON.stringify(data, null, 2);
         renderSummary(data);
       };
@@ -612,9 +645,13 @@
         const url = document.getElementById('crawlUrl').value.trim();
         if(!url){ alert('Enter URL'); return; }
         dbg.style.display='block'; dbg.textContent='Fetching table...';
-        const res = await fetch('/api/crawl/table?'+ new URLSearchParams({url}));
-        const data = await res.json();
-        if(!res.ok){ alert(data.detail || 'Failed'); return; }
+        const spec = { crawl: { table: { url, index: 0, max_rows: 50 } } };
+        const fd = new FormData();
+        fd.append('spec', JSON.stringify(spec));
+        const res = await fetch('/api/run', { method:'POST', body: fd });
+        const out = await res.json();
+        if(!res.ok){ alert(out.detail || 'Failed'); return; }
+        const data = out.crawl_table || {};
         dbg.textContent = JSON.stringify(data, null, 2);
         const wrap = document.getElementById('crawlTableWrap');
         const tbl = document.getElementById('crawlTable');

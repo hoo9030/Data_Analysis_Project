@@ -401,48 +401,44 @@ async def eda_summary(
     pivot_col: str | None = Form(None),
     pivot_fill: float | None = Form(None),
 ):
+    # Route through unified orchestrator
+    spec = {
+        "source": {"type": "upload"},
+        "filters": {"filter_query": filter_query, "include_cols": include_cols, "limit_rows": limit_rows},
+        "aggregation": {"group_by": group_by, "agg": agg, "value_cols": value_cols, "pivot_col": pivot_col, "pivot_fill": pivot_fill},
+        "summary": {"corr_method": corr_method, "max_corr_dims": max_corr_dims},
+    }
+    # Build a fake form to call internal function
+    class _FakeUpload:
+        def __init__(self, data: bytes):
+            self._data = data
+
     data = await file.read()
-    # Blank values act as auto-detect
-    auto_sep = sep or None
-    auto_enc = encoding or None
-    df, used_enc, used_sep = _smart_read_csv(data, sep=auto_sep, decimal=decimal or ".", encoding=auto_enc)
-    # Apply optional filters then aggregation
+    cfg = spec
+    # Reuse run_orchestrator logic pieces inline
+    used_enc = used_sep = None
+    df, used_enc, used_sep = _smart_read_csv(data, sep=sep or None, decimal=decimal or ".", encoding=encoding or None)
     df = _apply_filters(df, include_cols=include_cols, filter_query=filter_query, limit_rows=limit_rows)
     df = _apply_aggregation(df, group_by=group_by, agg=agg, value_cols=value_cols, pivot_col=pivot_col, pivot_fill=pivot_fill)
-    info = basic_info(df)
-    # Missing summary
-    ms_df = missing_summary(df)
-    ms_list = (
-        ms_df.to_dict(orient="records")
-        if hasattr(ms_df, "to_dict")
-        else []
-    )
-    # Column types
-    num_cols, cat_cols, dt_cols = detect_column_types(df)
-    # Correlation (limit dimensions)
+    # Produce the same summary as /run
     method = (corr_method or "pearson").lower()
     if method not in ALLOWED_CORR:
         raise HTTPException(400, detail=f"Invalid corr_method. Use one of {sorted(ALLOWED_CORR)}")
+    info = basic_info(df)
+    ms_df = missing_summary(df)
+    num_cols, cat_cols, dt_cols = detect_column_types(df)
     corr_payload = None
     if len(num_cols) >= 2:
-        use_cols = num_cols[: max(2, min(max_corr_dims, len(num_cols)))]
+        use_cols = num_cols[: max(2, min(int(max_corr_dims or 8), len(num_cols)))]
         corr = correlation_matrix(df[use_cols], method=method)
-        corr_payload = {
-            "labels": list(corr.columns),
-            "matrix": corr.values.tolist(),
-        }
-
+        corr_payload = {"labels": list(corr.columns), "matrix": corr.values.tolist()}
     return {
         "rows": int(info.get("rows", len(df))),
         "columns": int(info.get("columns", df.shape[1] if not df.empty else 0)),
         "memory": str(info.get("memory", "")),
-        "columns_info": {
-            "numeric": num_cols,
-            "categorical": cat_cols,
-            "datetime": dt_cols,
-        },
+        "columns_info": {"numeric": num_cols, "categorical": cat_cols, "datetime": dt_cols},
         "columns_stats": _column_summaries(df, top_n=5),
-        "missing": ms_list,
+        "missing": (ms_df.to_dict(orient="records") if hasattr(ms_df, "to_dict") else []),
         "corr": corr_payload,
         "corr_method": method,
         "detected": {"encoding": used_enc, "sep": used_sep},
@@ -468,32 +464,24 @@ async def sample_summary(
     df = generate_sample_data(rows=rows, seed=seed)
     df = _apply_filters(df, include_cols=include_cols, filter_query=filter_query, limit_rows=limit_rows)
     df = _apply_aggregation(df, group_by=group_by, agg=agg, value_cols=value_cols, pivot_col=pivot_col, pivot_fill=pivot_fill)
-    info = basic_info(df)
-    ms_df = missing_summary(df)
-    ms_list = ms_df.to_dict(orient="records")
-    num_cols, cat_cols, dt_cols = detect_column_types(df)
     method = (corr_method or "pearson").lower()
     if method not in ALLOWED_CORR:
         raise HTTPException(400, detail=f"Invalid corr_method. Use one of {sorted(ALLOWED_CORR)}")
+    info = basic_info(df)
+    ms_df = missing_summary(df)
+    num_cols, cat_cols, dt_cols = detect_column_types(df)
     corr_payload = None
     if len(num_cols) >= 2:
-        use_cols = num_cols[: max(2, min(max_corr_dims, len(num_cols)))]
+        use_cols = num_cols[: max(2, min(int(max_corr_dims or 8), len(num_cols)))]
         corr = correlation_matrix(df[use_cols], method=method)
-        corr_payload = {
-            "labels": list(corr.columns),
-            "matrix": corr.values.tolist(),
-        }
+        corr_payload = {"labels": list(corr.columns), "matrix": corr.values.tolist()}
     return {
         "rows": int(info.get("rows", len(df))),
         "columns": int(info.get("columns", df.shape[1] if not df.empty else 0)),
         "memory": str(info.get("memory", "")),
-        "columns_info": {
-            "numeric": num_cols,
-            "categorical": cat_cols,
-            "datetime": dt_cols,
-        },
+        "columns_info": {"numeric": num_cols, "categorical": cat_cols, "datetime": dt_cols},
         "columns_stats": _column_summaries(df, top_n=5),
-        "missing": ms_list,
+        "missing": (ms_df.to_dict(orient="records") if hasattr(ms_df, "to_dict") else []),
         "corr": corr_payload,
         "corr_method": method,
         "preview": _preview_records(df, max_rows=50),
@@ -761,7 +749,7 @@ async def eda_visualize(
         df, _, _ = _smart_read_csv(data)
         df = _apply_filters(df, include_cols=include_cols, filter_query=filter_query, limit_rows=limit_rows)
         df = _apply_aggregation(df, group_by=group_by, agg=agg, value_cols=value_cols, pivot_col=pivot_col, pivot_fill=pivot_fill)
-        spec = _build_figure(
+        spec_v = _build_figure(
             df,
             chart=chart,
             x=x,
@@ -775,7 +763,7 @@ async def eda_visualize(
             norm=norm,
             barmode=barmode,
         )
-        return {"figure": spec}
+        return {"figure": spec_v}
     except HTTPException:
         raise
     except Exception as e:
@@ -1201,18 +1189,44 @@ async def run_orchestrator(
     except Exception as e:
         raise HTTPException(400, detail=f"Invalid spec JSON: {e}")
 
-    # Build DataFrame source
-    use_sample = bool(cfg.get("use_sample"))
-    if use_sample:
-        rows = int(cfg.get("rows") or 500)
-        seed = int(cfg.get("seed") or 42)
-        df = generate_sample_data(rows=rows, seed=seed)
-        used_enc, used_sep = None, None
+    # Build DataFrame source (supports legacy use_sample/rows/seed, or source dict)
+    used_enc: str | None = None
+    used_sep: str | None = None
+
+    source = cfg.get("source")
+    if source and isinstance(source, dict):
+        stype = (source.get("type") or "upload").lower()
+        if stype == "sample":
+            rows = int(source.get("rows") or 500)
+            seed = int(source.get("seed") or 42)
+            df = generate_sample_data(rows=rows, seed=seed)
+        elif stype == "url":
+            url = source.get("url")
+            if not url:
+                raise HTTPException(400, detail="source.url is required for type=url")
+            data = await _fetch_bytes(url)
+            df, used_enc, used_sep = _smart_read_csv(
+                data,
+                sep=source.get("sep"),
+                decimal=source.get("decimal") or ".",
+                encoding=source.get("encoding"),
+            )
+        else:  # upload
+            if not file:
+                raise HTTPException(400, detail="file is required for source=upload")
+            data = await file.read()
+            df, used_enc, used_sep = _smart_read_csv(data)
     else:
-        if not file:
-            raise HTTPException(400, detail="file is required when use_sample is false")
-        data = await file.read()
-        df, used_enc, used_sep = _smart_read_csv(data)
+        use_sample = bool(cfg.get("use_sample"))
+        if use_sample:
+            rows = int(cfg.get("rows") or 500)
+            seed = int(cfg.get("seed") or 42)
+            df = generate_sample_data(rows=rows, seed=seed)
+        else:
+            if not file:
+                raise HTTPException(400, detail="file is required when use_sample is false")
+            data = await file.read()
+            df, used_enc, used_sep = _smart_read_csv(data)
 
     # Apply filters/aggregation if requested
     fcfg = cfg.get("filters") or {}
@@ -1347,6 +1361,64 @@ async def run_orchestrator(
                 },
                 "feature_importance": imps,
             }
+
+    # Crawl helpers (optional)
+    crawl = cfg.get("crawl") if isinstance(cfg.get("crawl"), dict) else None
+    if crawl:
+        # Table extraction
+        if isinstance(crawl.get("table"), dict):
+            tcfg = crawl.get("table")
+            url = tcfg.get("url")
+            if not url:
+                raise HTTPException(400, detail="crawl.table.url is required")
+            data = await _fetch_bytes(url)
+            try:
+                tables = pd.read_html(io.BytesIO(data), flavor="lxml")
+                index = int(tcfg.get("index") or 0)
+                max_rows = int(tcfg.get("max_rows") or 50)
+                if not tables:
+                    out["crawl_table"] = {"error": "No tables found"}
+                else:
+                    if not (0 <= index < len(tables)):
+                        raise HTTPException(400, detail=f"Index out of range (found {len(tables)} tables)")
+                    df_t = tables[index]
+                    preview = df_t.head(max(1, max_rows)).to_dict(orient="records")
+                    out["crawl_table"] = {
+                        "source_url": url,
+                        "table_index": index,
+                        "rows": len(df_t),
+                        "columns": df_t.shape[1],
+                        "preview": preview,
+                    }
+            except Exception as e:
+                out["crawl_table"] = {"error": f"Failed to parse HTML tables: {e}"}
+        # HTML extraction
+        if isinstance(crawl.get("html"), dict):
+            hcfg = crawl.get("html")
+            url = hcfg.get("url")
+            if not url:
+                raise HTTPException(400, detail="crawl.html.url is required")
+            data = await _fetch_bytes(url)
+            try:
+                soup = BeautifulSoup(data, "lxml")
+                selector = hcfg.get("selector")
+                attr = hcfg.get("attr")
+                max_items = int(hcfg.get("max_items") or 50)
+                hout: dict = {"source_url": url}
+                if selector:
+                    nodes = soup.select(selector)[:max_items]
+                    if attr:
+                        items = [n.get(attr) for n in nodes]
+                    else:
+                        items = [n.get_text(strip=True) for n in nodes]
+                    hout["selector"] = selector
+                    hout["items"] = items
+                else:
+                    hout["title"] = (soup.title.string.strip() if soup.title and soup.title.string else None)
+                    hout["links"] = [a.get("href") for a in soup.select("a[href]")[:max_items]]
+                out["crawl_html"] = hout
+            except Exception as e:
+                out["crawl_html"] = {"error": f"HTML parse error: {e}"}
 
     return out
 
