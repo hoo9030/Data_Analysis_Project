@@ -100,6 +100,14 @@
         <table id="colsTbl"></table>
       </div>
 
+      <div id="colDetailSection" style="display:none;">
+        <div class="section-title">Column Summary</div>
+        <div style="font-weight:600; margin:6px 0 4px;">Numeric</div>
+        <table id="numColsTbl"></table>
+        <div style="font-weight:600; margin:12px 0 4px;">Categorical</div>
+        <table id="catColsTbl"></table>
+      </div>
+
       <div id="previewSection" style="display:none;">
         <div class="section-title">Preview</div>
         <div style="margin:6px 0;"><button id="previewCsvBtn" class="btn" type="button">Download Preview CSV</button></div>
@@ -275,6 +283,29 @@
 
       // Viz controls
       setupVizControls(ci);
+
+      // Column stats tables
+      const stats = data.columns_stats || {};
+      const numStats = Array.isArray(stats.numeric) ? stats.numeric : [];
+      const catStats = Array.isArray(stats.categorical) ? stats.categorical : [];
+      const dsec = document.getElementById('colDetailSection');
+      const nt = document.getElementById('numColsTbl');
+      const ct = document.getElementById('catColsTbl');
+      if(numStats.length || catStats.length){
+        dsec.style.display = 'block';
+        if(numStats.length){
+          nt.innerHTML = '<tr><th>Column</th><th>Count</th><th>Unique</th><th>Missing</th><th>Mean</th><th>Std</th><th>Min</th><th>25%</th><th>Median</th><th>75%</th><th>Max</th></tr>' +
+            numStats.map(r => `<tr><td>${escapeHtml(r.column)}</td><td>${formatValue(r.count)}</td><td>${formatValue(r.unique)}</td><td>${formatValue(r.missing)}</td><td>${formatValue(r.mean)}</td><td>${formatValue(r.std)}</td><td>${formatValue(r.min)}</td><td>${formatValue(r.p25)}</td><td>${formatValue(r.median)}</td><td>${formatValue(r.p75)}</td><td>${formatValue(r.max)}</td></tr>`).join('');
+        } else { nt.innerHTML = '<tr><td>(none)</td></tr>'; }
+        if(catStats.length){
+          const fmtTop = (arr) => (Array.isArray(arr) ? arr.map(o=>`${escapeHtml(o.value)} (${formatValue(o.count)}, ${(Number(o.pct)*100).toFixed(2)}%)`).join(', ') : '');
+          ct.innerHTML = '<tr><th>Column</th><th>Unique</th><th>Missing</th><th>Top</th></tr>' +
+            catStats.map(r => `<tr><td>${escapeHtml(r.column)}</td><td>${formatValue(r.unique)}</td><td>${formatValue(r.missing)}</td><td>${fmtTop(r.top)}</td></tr>`).join('');
+        } else { ct.innerHTML = '<tr><td>(none)</td></tr>'; }
+      } else {
+        dsec.style.display = 'none';
+        nt.innerHTML = ''; ct.innerHTML = '';
+      }
 
       // Preview table (post-filter/aggregation)
       const pv = Array.isArray(data.preview) ? data.preview : [];

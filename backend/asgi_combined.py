@@ -295,6 +295,92 @@ def _preview_records(df: pd.DataFrame, max_rows: int = 50):
         return pre.astype(str).to_dict(orient="records")
 
 
+def _safe_float(x):
+    try:
+        import numpy as _np  # type: ignore
+        if x is None:
+            return None
+        if pd.isna(x):
+            return None
+        if isinstance(x, (_np.floating, _np.integer)):
+            return float(x)
+        return float(x) if isinstance(x, (int, float)) else None
+    except Exception:
+        try:
+            return float(x)
+        except Exception:
+            return None
+
+
+def _column_summaries(df: pd.DataFrame, top_n: int = 5) -> dict:
+    out: dict = {"numeric": [], "categorical": [], "datetime": []}
+    try:
+        num_cols = df.select_dtypes(include=["number"]).columns.tolist()
+        for col in num_cols:
+            s = df[col]
+            try:
+                desc = s.describe()
+            except Exception:
+                desc = {}
+            rec = {
+                "column": col,
+                "count": int((~s.isna()).sum()),
+                "mean": _safe_float(desc.get("mean")),
+                "std": _safe_float(desc.get("std")),
+                "min": _safe_float(desc.get("min")),
+                "p25": _safe_float(desc.get("25%")),
+                "median": _safe_float(desc.get("50%")),
+                "p75": _safe_float(desc.get("75%")),
+                "max": _safe_float(desc.get("max")),
+                "unique": int(s.nunique(dropna=True)),
+                "missing": int(s.isna().sum()),
+            }
+            out["numeric"].append(rec)
+
+        # Treat non-number as categorical/datetime split
+        dt_cols = df.select_dtypes(include=["datetime", "datetimetz", "datetime64[ns]"]).columns.tolist()
+        for col in dt_cols:
+            s = df[col]
+            try:
+                vmin = s.min()
+                vmax = s.max()
+            except Exception:
+                vmin = vmax = None
+            rec = {
+                "column": col,
+                "min": str(vmin) if vmin is not None else None,
+                "max": str(vmax) if vmax is not None else None,
+                "unique": int(s.nunique(dropna=True)),
+                "missing": int(s.isna().sum()),
+            }
+            out["datetime"].append(rec)
+
+        # Categorical: everything else excluding numeric/datetime
+        exclude = set(num_cols) | set(dt_cols)
+        cat_cols = [c for c in df.columns if c not in exclude]
+        for col in cat_cols:
+            s = df[col].astype(str, errors="ignore") if hasattr(df[col], "astype") else df[col]
+            vc = s.value_counts(dropna=True)
+            top = []
+            total = max(1, len(s))
+            for v, cnt in vc.head(top_n).items():
+                try:
+                    pct = round(float(cnt) / float(total), 4)
+                except Exception:
+                    pct = None
+                top.append({"value": str(v), "count": int(cnt), "pct": pct})
+            rec = {
+                "column": col,
+                "unique": int(s.nunique(dropna=True)),
+                "missing": int(pd.isna(df[col]).sum()) if hasattr(pd, "isna") else 0,
+                "top": top,
+            }
+            out["categorical"].append(rec)
+    except Exception:
+        pass
+    return out
+
+
 ALLOWED_CORR = {"pearson", "spearman", "kendall"}
 
 
@@ -355,6 +441,7 @@ async def eda_summary(
             "categorical": cat_cols,
             "datetime": dt_cols,
         },
+        "columns_stats": _column_summaries(df, top_n=5),
         "missing": ms_list,
         "corr": corr_payload,
         "corr_method": method,
@@ -405,6 +492,7 @@ async def sample_summary(
             "categorical": cat_cols,
             "datetime": dt_cols,
         },
+        "columns_stats": _column_summaries(df, top_n=5),
         "missing": ms_list,
         "corr": corr_payload,
         "corr_method": method,
@@ -800,6 +888,7 @@ async def crawl_csv(
         "columns": int(info.get("columns", df.shape[1] if not df.empty else 0)),
         "memory": str(info.get("memory", "")),
         "columns_info": {"numeric": num_cols, "categorical": cat_cols, "datetime": dt_cols},
+        "columns_stats": _column_summaries(df, top_n=5),
         "missing": ms_list,
         "corr": corr_payload,
         "corr_method": method,
