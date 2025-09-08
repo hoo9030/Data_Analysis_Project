@@ -173,6 +173,8 @@
     });
 
     function renderSummary(data){
+      // Cache latest summary for downloads
+      lastSummary = data;
       // Metrics
       const metrics = document.getElementById('metrics');
       metrics.style.display = 'flex';
@@ -287,6 +289,52 @@
         if(!res.ok){ alert(data.detail || data.error || 'Failed'); return; }
         Plotly.newPlot('vizChart', (data.figure && data.figure.data) ? data.figure.data : [], (data.figure && data.figure.layout) ? data.figure.layout : {}, {displaylogo:false, responsive:true});
       };
+
+      // Download handlers (client-side)
+      const missingBtn = document.getElementById('missingCsvBtn');
+      if(missingBtn){
+        missingBtn.onclick = () => {
+          try {
+            const ms = (lastSummary && Array.isArray(lastSummary.missing)) ? lastSummary.missing : [];
+            if(!ms.length){ alert('No missing summary available.'); return; }
+            const headers = ['column','missing_count','missing_pct'];
+            const rows = ms.map(r => [r.column, r.missing_count, r.missing_pct]);
+            const csv = [headers.join(','), ...rows.map(r => r.map(v => String(v).includes(',') ? '"'+String(v).replaceAll('"','""')+'"' : String(v)).join(','))].join('\n');
+            const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'missing_summary.csv';
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+          } catch(err){ alert('Failed to generate CSV: '+ String(err)); }
+        };
+      }
+
+      const corrBtn = document.getElementById('corrPngBtn');
+      if(corrBtn){
+        corrBtn.onclick = async () => {
+          const chartEl = document.getElementById('corrChart');
+          if(!chartEl || !chartEl.data || !chartEl.data.length){ alert('No heatmap to download.'); return; }
+          try {
+            const dataUrl = await Plotly.toImage(chartEl, {format:'png', height:600, width:800, scale:2});
+            const a = document.createElement('a'); a.href = dataUrl; a.download = 'correlation_heatmap.png';
+            document.body.appendChild(a); a.click(); a.remove();
+          } catch(err){ alert('Failed to export PNG: '+ String(err)); }
+        };
+      }
+
+      const vizBtn = document.getElementById('vizPngBtn');
+      if(vizBtn){
+        vizBtn.onclick = async () => {
+          const chartEl = document.getElementById('vizChart');
+          if(!chartEl || !chartEl.data || !chartEl.data.length){ alert('No chart to download.'); return; }
+          try {
+            const dataUrl = await Plotly.toImage(chartEl, {format:'png', height:640, width:960, scale:2});
+            const a = document.createElement('a'); a.href = dataUrl; a.download = 'chart.png';
+            document.body.appendChild(a); a.click(); a.remove();
+          } catch(err){ alert('Failed to export PNG: '+ String(err)); }
+        };
+      }
 
       // Profiling
       document.getElementById('profileSection').style.display = 'block';
