@@ -175,6 +175,31 @@
         </div>
       </div>
 
+      <div id="modelSection" style="display:none; margin-top:14px;">
+        <div class="section-title">Modeling</div>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <label>Target
+            <select id="modelTarget"></select>
+          </label>
+          <label>CV
+            <input id="cvFolds" type="number" value="5" min="2" max="10" step="1" style="width:80px;" />
+          </label>
+          <button id="trainBtn" class="btn" type="button">Train (Upload)</button>
+          <button id="trainSampleBtn" class="btn" type="button">Train (Sample)</button>
+        </div>
+        <div id="modelMetrics" style="margin-top:8px;"></div>
+        <div style="display:flex; gap:12px; margin-top:8px; flex-wrap:wrap;">
+          <div style="flex:1; min-width:360px;">
+            <div style="font-weight:600; margin-bottom:6px;">Confusion Matrix</div>
+            <div id="cmChart" style="height:360px;"></div>
+          </div>
+          <div style="flex:1; min-width:360px;">
+            <div style="font-weight:600; margin-bottom:6px;">Feature Importance</div>
+            <div id="fiChart" style="height:360px;"></div>
+          </div>
+        </div>
+      </div>
+
       <div id="crawlSection" style="margin-top:14px;">
         <div class="section-title">Web Crawl</div>
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
@@ -361,9 +386,9 @@
       return String(s ?? '').replace(/[&<>"]+/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
     }
 
-    function setupVizControls(ci){
-      const vsec = document.getElementById('vizSection');
-      vsec.style.display = 'block';
+      function setupVizControls(ci){
+        const vsec = document.getElementById('vizSection');
+        vsec.style.display = 'block';
       const selX = document.getElementById('selX');
       const selY = document.getElementById('selY');
       const selColor = document.getElementById('selColor');
@@ -434,6 +459,74 @@
         if(!res.ok){ alert(data.detail || data.error || 'Failed'); return; }
         Plotly.newPlot('vizChart', (data.figure && data.figure.data) ? data.figure.data : [], (data.figure && data.figure.layout) ? data.figure.layout : {}, {displaylogo:false, responsive:true});
       };
+
+      // Modeling controls
+      const msec = document.getElementById('modelSection');
+      msec.style.display = 'block';
+      const modelTarget = document.getElementById('modelTarget');
+      const fillTargets = (cols) => {
+        modelTarget.innerHTML = '';
+        const all = (cols.datetime||[]).concat(cols.numeric||[]).concat(cols.categorical||[]);
+        all.forEach(c => { const o=document.createElement('option'); o.value=c; o.textContent=c; modelTarget.appendChild(o); });
+        if(all.includes('target')) modelTarget.value='target';
+      };
+      fillTargets(ci);
+      document.getElementById('trainBtn').onclick = async () => {
+        if(!fileRef){ alert('Upload a CSV first.'); return; }
+        const fd = new FormData();
+        fd.append('file', fileRef);
+        fd.append('target', modelTarget.value || '');
+        fd.append('cv', document.getElementById('cvFolds').value || '5');
+        // Filters
+        fd.append('filter_query', document.getElementById('filterQuery').value || '');
+        fd.append('include_cols', document.getElementById('includeCols').value || '');
+        fd.append('limit_rows', document.getElementById('limitRows').value || '');
+        const res = await fetch('/api/model/evaluate', { method:'POST', body: fd });
+        const data = await res.json();
+        if(!res.ok){ alert(data.detail || data.error || 'Failed'); return; }
+        renderModeling(data);
+      };
+      document.getElementById('trainSampleBtn').onclick = async () => {
+        const params = new URLSearchParams({ target: modelTarget.value || '', cv: String(document.getElementById('cvFolds').value || '5') });
+        params.set('filter_query', document.getElementById('filterQuery').value || '');
+        params.set('include_cols', document.getElementById('includeCols').value || '');
+        params.set('limit_rows', document.getElementById('limitRows').value || '');
+        const res = await fetch('/api/sample/model/evaluate?' + params.toString());
+        const data = await res.json();
+        if(!res.ok){ alert(data.detail || data.error || 'Failed'); return; }
+        renderModeling(data);
+      };
+
+      function renderModeling(m){
+        const wrap = document.getElementById('modelMetrics');
+        const task = m.task || '';
+        const toRow = (k,v) => `<tr><td style="color:#6B7280;">${escapeHtml(k)}</td><td>${formatValue(v)}</td></tr>`;
+        const met = m.metrics || {};
+        let html = `<div class="metric"><div class="label">Task</div><div class="value">${escapeHtml(task)}</div></div>`;
+        html += '<table style="margin-top:6px;">' + Object.keys(met).map(k=>toRow(k, met[k])).join('') + '</table>';
+        wrap.innerHTML = html;
+        // Confusion Matrix
+        const cmEl = document.getElementById('cmChart');
+        if(task==='classification' && Array.isArray(m.confusion_matrix) && Array.isArray(m.labels)){
+          const trace = { z: m.confusion_matrix, x: m.labels, y: m.labels, type:'heatmap', colorscale:'Blues' };
+          const layout = { margin:{l:60,r:10,b:60,t:10}, xaxis:{automargin:true}, yaxis:{automargin:true} };
+          Plotly.newPlot(cmEl, [trace], layout, {displaylogo:false, responsive:true});
+        } else {
+          Plotly.purge(cmEl);
+        }
+        // Feature Importance
+        const fiEl = document.getElementById('fiChart');
+        const fis = Array.isArray(m.feature_importance) ? m.feature_importance : [];
+        if(fis.length){
+          const y = fis.map(r=>r.feature);
+          const x = fis.map(r=>r.importance);
+          const trace = { x, y, type:'bar', orientation:'h' };
+          const layout = { margin:{l:120,r:10,b:40,t:10} };
+          Plotly.newPlot(fiEl, [trace], layout, {displaylogo:false, responsive:true});
+        } else {
+          Plotly.purge(fiEl);
+        }
+      }
 
       // Download handlers (client-side)
       const missingBtn = document.getElementById('missingCsvBtn');

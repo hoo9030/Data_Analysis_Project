@@ -1,7 +1,7 @@
 @echo off
 setlocal enableextensions enabledelayedexpansion
 
-REM Unified runner for Combined ASGI (Django + FastAPI)
+REM Unified runner for ASGI (FastAPI only)
 REM Usage:
 REM   run.bat combined  - Launch combined ASGI (default)
 REM   run.bat install   - Upgrade pip and install requirements
@@ -56,10 +56,7 @@ if defined SKIP_INSTALL (
 )
 goto :eof
 
-REM Default ALLOWED_HOSTS for Django
-:ensure_hosts
-if not defined DJANGO_ALLOWED_HOSTS set "DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1"
-goto :eof
+REM (legacy) ensure_hosts removed; Django no longer required
 
 REM Subcommands ---------------------------------------------------------------
 :cmd_install
@@ -79,7 +76,6 @@ exit /b %EXITCODE%
 :cmd_combined
 call :ensure_venv
 call :ensure_deps
-call :ensure_hosts
 set "RELOAD_FLAG=--reload"
 if "%RELOAD%"=="0" set "RELOAD_FLAG="
 echo [INFO] Launching combined ASGI at http://%HOST%:%PORT% %RELOAD_FLAG%
@@ -105,8 +101,8 @@ echo.
 echo Usage: run.bat ^<combined^|install^|migrate^|help^>
 echo   combined - Launch Uvicorn ASGI (HOST/PORT/RELOAD env supported)
 echo   install  - Create venv and install requirements
-echo   migrate  - Run Django migrations
+echo   migrate  - (legacy) Run Django migrations
 echo.
 echo Env:
-echo   HOST=127.0.0.1  PORT=8000   RELOAD=1  DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
+echo   HOST=127.0.0.1  PORT=8000   RELOAD=1
 exit /b 0

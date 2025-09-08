@@ -1,78 +1,55 @@
-﻿# 데이터 분석 스튜디오 (ASGI)
+Data Analysis Studio (FastAPI)
 
-데이터 탐색·시각화·모델링을 위한 Python 기반 프로젝트입니다. 분석 로직은 Python 그대로 유지하고, 웹은 Django + FastAPI 통합 ASGI 앱으로 제공합니다.
+This project provides a unified, FastAPI‑based data analysis studio. It offers CSV ingestion with smart encoding/delimiter detection, EDA summaries, interactive visualization (Plotly), profiling (ydata‑profiling), web crawling helpers, and lightweight model evaluation — all accessible via HTTP APIs and a simple HTML UI.
 
-## 빠른 시작
+Quick Start
 
-1) 환경 준비
+1) Setup virtualenv and install deps
+
 ```
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-2) 실행 (ASGI 통합 모드 권장)
+2) Run the app
+
 ```
 run.bat combined
 ```
 
-## 통합 실행(run.bat)
+The app serves:
+- `/`          HTML Home (served directly by FastAPI)
+- `/api/*`     All APIs (EDA, visualization, profiling, crawling, modeling)
+- `/static/*`  Static assets
 
-다음 모드를 지원합니다:
+Environment
 
-- Django: `run.bat django` — Django 개발 서버 실행 (http://127.0.0.1:8000)
-- Combined: `run.bat combined` — Uvicorn으로 Django + FastAPI(및 Flask) 통합 실행
-- Install: `run.bat install` — 가상환경 생성/유지 및 의존성 설치
-- Migrate: `run.bat migrate` — Django 데이터베이스 마이그레이션
+- `HOST` default `127.0.0.1`
+- `PORT` default `8000`
+- `RELOAD` set `0` to disable auto‑reload (default on)
 
-공통 환경변수:
-- `DJANGO_ALLOWED_HOSTS`: Django 허용 호스트 목록(기본: localhost,127.0.0.1)
-- `SKIP_INSTALL=1`: 의존성 설치를 건너뜀(빠른 재실행용)
+Key Endpoints (selection)
 
-예시:
-```
-set DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1 & run.bat combined
-```
+- EDA summary (upload): `POST /api/eda/summary`
+  - Form: `file`, `sep`, `decimal`, `encoding`, `corr_method`, filters (`filter_query`, `include_cols`, `limit_rows`), aggregation (`group_by`, `agg`, `value_cols`, `pivot_col`, `pivot_fill`)
+- EDA visualize (upload): `POST /api/eda/visualize`
+- Profiling (upload): `POST /api/profile/html`
+- Sample variants: `GET /api/sample/summary`, `GET /api/sample/visualize`, `GET /api/sample/csv`
+- Crawling: `GET /api/crawl/csv`, `GET /api/crawl/table`, `GET /api/crawl/html`
+- Modeling (upload): `POST /api/model/evaluate` (auto classify/regress + CV)
+- Modeling (sample): `GET /api/sample/model/evaluate`
+- Orchestrator: `POST /api/run` — compose multiple steps (filters/aggregation/summary/visualize/profile/model) in a single request via JSON `spec`.
 
-## 아키텍처
+Notes
 
-- `/` (Django): 업로드 폼 및 기본 페이지
-- `/api` (FastAPI): 분석 API (예: `POST /api/eda/summary`)
-- `/legacy` (Flask): 예시용 헬스 체크
-- 정적 파일: `backend/staticfiles` (배포 전 `collectstatic` 필요)
+- The app now runs FastAPI‑only; previous Django/Flask mounts are removed.
+- Legacy files and caches may remain on disk (e.g., `backend/config`, `backend/studio` pyc, `backend/db.sqlite3`). They are unused and can be deleted safely if not needed.
+- Plotly rendering uses client‑side JS; image downloads are generated in the browser.
 
-## 배포 팁
+Dev Tips
 
-- 정적 파일 수집
-```
-cd backend
-..\.venv\Scripts\python.exe manage.py collectstatic --noinput
-```
-- 권장 Uvicorn 실행 옵션
-```
-.\.venv\Scripts\python.exe -m uvicorn backend.asgi_combined:app --host 0.0.0.0 --port 8000 --workers 4 --proxy-headers
-```
-- 환경변수
-  - `DJANGO_SECRET_KEY`: 필수, 강한 랜덤 값
-  - `DJANGO_DEBUG=false`
-  - `DJANGO_ALLOWED_HOSTS=example.com,127.0.0.1`
-  - `DJANGO_CSRF_TRUSTED_ORIGINS=https://example.com`
-
-## 프로젝트 구조 (요약)
-```
-backend/
-  asgi_combined.py     # Django+FastAPI(+Flask) 통합 ASGI 앱
-  config/              # Django 설정/URL
-  studio/              # Django 앱(뷰/템플릿)
-  templates/           # 템플릿
-  static/              # 개발용 정적
-  staticfiles/         # collectstatic 출력(배포용)
-src/
-  data_ops.py, eda_ops.py, ...  # 분석 로직
-.run.bat                         # 통합 실행 스크립트
-requirements.txt
-```
-
-
-
+- Launch directly with uvicorn if preferred:
+  `.\.venv\Scripts\python.exe -m uvicorn backend.asgi_combined:app --host 127.0.0.1 --port 8000 --reload`
+- CORS is permissive for local development. Harden before production.
 

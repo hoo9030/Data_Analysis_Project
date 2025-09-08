@@ -39,3 +39,7 @@ dist/
 # Secrets and environment
 .env
 .streamlit/secrets.toml
+
+# SQLite and local databases (legacy)
+*.sqlite3
+*.db

@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import sys
 import io
+import json
 from pathlib import Path
 import socket
 import ipaddress
@@ -17,21 +18,20 @@ from urllib.parse import urlparse
 import pandas as pd
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from starlette.applications import Starlette
-from starlette.routing import Mount
+from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
-from starlette.middleware.wsgi import WSGIMiddleware
-from django.core.asgi import get_asgi_application
-from flask import Flask
+# from starlette.middleware.wsgi import WSGIMiddleware  # legacy (unused)
+# from django.core.asgi import get_asgi_application    # legacy (unused)
+# from flask import Flask                               # legacy (unused)
 import plotly.express as px
-from starlette.responses import Response
+from starlette.responses import Response, HTMLResponse
 import httpx
 from bs4 import BeautifulSoup
 
 
-# Django settings
-# When launched from project root, ensure Django loads settings from backend/config
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "backend.config.settings")
+# Django settings (legacy, disabled by default)
+# os.environ.setdefault("DJANGO_SETTINGS_MODULE", "backend.config.settings")
 
 # Resolve paths
 BACKEND_DIR = Path(__file__).resolve().parent
@@ -47,8 +47,8 @@ from eda_ops import basic_info, missing_summary, correlation_matrix  # type: ign
 from data_ops import generate_sample_data, detect_column_types  # type: ignore
 
 
-# Django ASGI app mounted at '/'
-django_asgi = get_asgi_application()
+# Legacy Django app (not mounted by default)
+# django_asgi = get_asgi_application()
 
 
 # FastAPI app mounted at '/api'
@@ -938,13 +938,424 @@ async def crawl_html(url: str, selector: str | None = None, attr: str | None = N
     return out
 
 
-# Optional: small Flask app mounted at '/legacy'
-flask_app = Flask(__name__)
+# ----- Modeling endpoints ----------------------------------------------------
+
+def _infer_task(y: pd.Series) -> str:
+    try:
+        import numpy as _np  # type: ignore
+        if y.dtype == bool or str(y.dtype).startswith("bool"):
+            return "classification"
+        if y.dtype == object or str(y.dtype).startswith("category"):
+            return "classification"
+        # Numeric: small unique count -> classification
+        nunique = int(y.nunique(dropna=True))
+        if str(y.dtype).startswith("int") and nunique <= max(20, int(len(y) * 0.05)):
+            return "classification"
+        return "regression"
+    except Exception:
+        return "regression"
 
 
-@flask_app.get("/health")
-def health():  # pragma: no cover - tiny example
-    return {"ok": True}
+def _build_model_pipeline(df: pd.DataFrame, target: str, task: str):
+    from sklearn.compose import ColumnTransformer  # type: ignore
+    from sklearn.pipeline import Pipeline  # type: ignore
+    from sklearn.impute import SimpleImputer  # type: ignore
+    from sklearn.preprocessing import OneHotEncoder, StandardScaler  # type: ignore
+    from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor  # type: ignore
+
+    # Split features/target
+    if target not in df.columns:
+        raise ValueError("target column not in dataframe")
+    df2 = df.dropna(subset=[target]).copy()
+    if df2.empty:
+        raise ValueError("No rows remaining after dropping NA in target")
+    y = df2[target]
+    X = df2.drop(columns=[target])
+
+    # Column selection
+    num_cols = X.select_dtypes(include=["number"]).columns.tolist()
+    dt_cols = X.select_dtypes(include=["datetime", "datetimetz", "datetime64[ns]"]).columns.tolist()
+    cat_cols = [c for c in X.columns if c not in set(num_cols) | set(dt_cols)]
+
+    numeric_transformer = Pipeline(
+        steps=[
+            ("imputer", SimpleImputer(strategy="median")),
+            ("scaler", StandardScaler(with_mean=False)),
+        ]
+    )
+    categorical_transformer = Pipeline(
+        steps=[
+            ("imputer", SimpleImputer(strategy="most_frequent")),
+            ("ohe", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
+        ]
+    )
+
+    pre = ColumnTransformer(
+        transformers=[
+            ("num", numeric_transformer, num_cols),
+            ("cat", categorical_transformer, cat_cols),
+        ],
+        remainder="drop",
+    )
+
+    if task == "classification":
+        model = RandomForestClassifier(n_estimators=200, random_state=42, n_jobs=-1)
+    else:
+        model = RandomForestRegressor(n_estimators=200, random_state=42, n_jobs=-1)
+
+    pipe = Pipeline(steps=[("preprocess", pre), ("model", model)])
+    return pipe, X, y
+
+
+def _feature_importances_from_pipeline(pipe, top_n: int = 30):
+    try:
+        import numpy as _np  # type: ignore
+        pre = pipe.named_steps.get("preprocess")
+        model = pipe.named_steps.get("model")
+        if not hasattr(model, "feature_importances_"):
+            return []
+        imps = getattr(model, "feature_importances_")
+        try:
+            names = pre.get_feature_names_out()
+        except Exception:
+            names = [f"f{i}" for i in range(len(imps))]
+        pairs = sorted(zip(names, imps), key=lambda t: float(t[1]), reverse=True)
+        pairs = pairs[: max(1, min(top_n, len(pairs)))]
+        return [{"feature": str(n), "importance": float(v)} for n, v in pairs]
+    except Exception:
+        return []
+
+
+@api.post("/model/evaluate")
+async def model_evaluate(
+    file: UploadFile = File(...),
+    target: str = Form(...),
+    cv: int = Form(5),
+    filter_query: str | None = Form(None),
+    include_cols: str | None = Form(None),
+    limit_rows: int | None = Form(None),
+):
+    try:
+        data = await file.read()
+        df, _, _ = _smart_read_csv(data)
+        df = _apply_filters(df, include_cols=include_cols, filter_query=filter_query, limit_rows=limit_rows)
+        if target not in df.columns:
+            raise HTTPException(400, detail="target column not found")
+        task = _infer_task(df[target])
+
+        pipe, X, y = _build_model_pipeline(df, target, task)
+
+        # Cross-validation
+        from sklearn.model_selection import cross_val_score, cross_val_predict, StratifiedKFold, KFold  # type: ignore
+        from sklearn import metrics as skm  # type: ignore
+
+        if task == "classification":
+            cv_split = StratifiedKFold(n_splits=max(2, int(cv or 5)), shuffle=True, random_state=42)
+            acc = cross_val_score(pipe, X, y, cv=cv_split, scoring="accuracy", n_jobs=-1)
+            f1m = cross_val_score(pipe, X, y, cv=cv_split, scoring="f1_macro", n_jobs=-1)
+            y_pred = cross_val_predict(pipe, X, y, cv=cv_split, n_jobs=-1)
+            labels = sorted(list(pd.unique(y)))
+            cm = skm.confusion_matrix(y, y_pred, labels=labels)
+            try:
+                report = skm.classification_report(y, y_pred, output_dict=True, zero_division=0)
+            except Exception:
+                report = None
+            # Fit on full data for importances
+            pipe.fit(X, y)
+            imps = _feature_importances_from_pipeline(pipe)
+            return {
+                "task": task,
+                "n_samples": int(len(y)),
+                "n_features": int(X.shape[1]),
+                "target": target,
+                "metrics": {
+                    "accuracy_mean": float(acc.mean()),
+                    "accuracy_std": float(acc.std()),
+                    "f1_macro_mean": float(f1m.mean()),
+                    "f1_macro_std": float(f1m.std()),
+                },
+                "labels": [str(l) for l in labels],
+                "confusion_matrix": cm.tolist(),
+                "classification_report": report,
+                "feature_importance": imps,
+            }
+        else:
+            cv_split = KFold(n_splits=max(2, int(cv or 5)), shuffle=True, random_state=42)
+            rmse = -cross_val_score(pipe, X, y, cv=cv_split, scoring="neg_root_mean_squared_error", n_jobs=-1)
+            r2 = cross_val_score(pipe, X, y, cv=cv_split, scoring="r2", n_jobs=-1)
+            mae = -cross_val_score(pipe, X, y, cv=cv_split, scoring="neg_mean_absolute_error", n_jobs=-1)
+            # Fit on full data for importances
+            pipe.fit(X, y)
+            imps = _feature_importances_from_pipeline(pipe)
+            return {
+                "task": task,
+                "n_samples": int(len(y)),
+                "n_features": int(X.shape[1]),
+                "target": target,
+                "metrics": {
+                    "rmse_mean": float(rmse.mean()),
+                    "rmse_std": float(rmse.std()),
+                    "r2_mean": float(r2.mean()),
+                    "r2_std": float(r2.std()),
+                    "mae_mean": float(mae.mean()),
+                    "mae_std": float(mae.std()),
+                },
+                "feature_importance": imps,
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(400, detail=str(e))
+
+
+@api.get("/sample/model/evaluate")
+async def sample_model_evaluate(
+    target: str = "target",
+    cv: int = 5,
+    filter_query: str | None = None,
+    include_cols: str | None = None,
+    limit_rows: int | None = None,
+):
+    try:
+        df = generate_sample_data(rows=500, seed=42)
+        df = _apply_filters(df, include_cols=include_cols, filter_query=filter_query, limit_rows=limit_rows)
+        if target not in df.columns:
+            raise HTTPException(400, detail="target column not found in sample data")
+        task = _infer_task(df[target])
+        pipe, X, y = _build_model_pipeline(df, target, task)
+        from sklearn.model_selection import cross_val_score, cross_val_predict, StratifiedKFold, KFold  # type: ignore
+        from sklearn import metrics as skm  # type: ignore
+        if task == "classification":
+            cv_split = StratifiedKFold(n_splits=max(2, int(cv or 5)), shuffle=True, random_state=42)
+            acc = cross_val_score(pipe, X, y, cv=cv_split, scoring="accuracy", n_jobs=-1)
+            f1m = cross_val_score(pipe, X, y, cv=cv_split, scoring="f1_macro", n_jobs=-1)
+            y_pred = cross_val_predict(pipe, X, y, cv=cv_split, n_jobs=-1)
+            labels = sorted(list(pd.unique(y)))
+            cm = skm.confusion_matrix(y, y_pred, labels=labels)
+            pipe.fit(X, y)
+            imps = _feature_importances_from_pipeline(pipe)
+            return {
+                "task": task,
+                "n_samples": int(len(y)),
+                "n_features": int(X.shape[1]),
+                "target": target,
+                "metrics": {
+                    "accuracy_mean": float(acc.mean()),
+                    "accuracy_std": float(acc.std()),
+                    "f1_macro_mean": float(f1m.mean()),
+                    "f1_macro_std": float(f1m.std()),
+                },
+                "labels": [str(l) for l in labels],
+                "confusion_matrix": cm.tolist(),
+                "feature_importance": imps,
+            }
+        else:
+            cv_split = KFold(n_splits=max(2, int(cv or 5)), shuffle=True, random_state=42)
+            rmse = -cross_val_score(pipe, X, y, cv=cv_split, scoring="neg_root_mean_squared_error", n_jobs=-1)
+            r2 = cross_val_score(pipe, X, y, cv=cv_split, scoring="r2", n_jobs=-1)
+            mae = -cross_val_score(pipe, X, y, cv=cv_split, scoring="neg_mean_absolute_error", n_jobs=-1)
+            pipe.fit(X, y)
+            imps = _feature_importances_from_pipeline(pipe)
+            return {
+                "task": task,
+                "n_samples": int(len(y)),
+                "n_features": int(X.shape[1]),
+                "target": target,
+                "metrics": {
+                    "rmse_mean": float(rmse.mean()),
+                    "rmse_std": float(rmse.std()),
+                    "r2_mean": float(r2.mean()),
+                    "r2_std": float(r2.std()),
+                    "mae_mean": float(mae.mean()),
+                    "mae_std": float(mae.std()),
+                },
+                "feature_importance": imps,
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(400, detail=str(e))
+
+
+@api.post("/run")
+async def run_orchestrator(
+    file: UploadFile | None = File(None),
+    spec: str = Form(...),
+):
+    """Unified entrypoint to run multiple analysis tasks in one call.
+
+    spec example (JSON string):
+    {
+      "use_sample": true,            // or omit and provide file
+      "rows": 500, "seed": 42,      // for sample
+      "filters": {"filter_query": "feature_1>0", "include_cols": "col1,col2", "limit_rows": 100},
+      "aggregation": {"group_by": "category", "agg": "mean", "value_cols": "feature_1", "pivot_col": null},
+      "summary": {"corr_method": "pearson", "max_corr_dims": 8},
+      "visualize": {"chart": "histogram", "x": "feature_1", "y": null, "color": "category", "bins": 30},
+      "profile": {"minimal": true, "sample_n": 2000},
+      "model": {"target": "target", "cv": 5}
+    }
+    """
+    try:
+        cfg = json.loads(spec) if isinstance(spec, str) else spec
+    except Exception as e:
+        raise HTTPException(400, detail=f"Invalid spec JSON: {e}")
+
+    # Build DataFrame source
+    use_sample = bool(cfg.get("use_sample"))
+    if use_sample:
+        rows = int(cfg.get("rows") or 500)
+        seed = int(cfg.get("seed") or 42)
+        df = generate_sample_data(rows=rows, seed=seed)
+        used_enc, used_sep = None, None
+    else:
+        if not file:
+            raise HTTPException(400, detail="file is required when use_sample is false")
+        data = await file.read()
+        df, used_enc, used_sep = _smart_read_csv(data)
+
+    # Apply filters/aggregation if requested
+    fcfg = cfg.get("filters") or {}
+    acfg = cfg.get("aggregation") or {}
+    df = _apply_filters(
+        df,
+        include_cols=fcfg.get("include_cols"),
+        filter_query=fcfg.get("filter_query"),
+        limit_rows=fcfg.get("limit_rows"),
+    )
+    df = _apply_aggregation(
+        df,
+        group_by=acfg.get("group_by"),
+        agg=acfg.get("agg"),
+        value_cols=acfg.get("value_cols"),
+        pivot_col=acfg.get("pivot_col"),
+        pivot_fill=acfg.get("pivot_fill"),
+    )
+
+    out: dict = {"rows": int(df.shape[0]), "columns": int(df.shape[1])}
+    if not use_sample:
+        out["detected"] = {"encoding": used_enc, "sep": used_sep}
+
+    # Summary
+    if "summary" in cfg:
+        scfg = cfg.get("summary") or {}
+        method = (scfg.get("corr_method") or "pearson").lower()
+        if method not in ALLOWED_CORR:
+            raise HTTPException(400, detail=f"Invalid corr_method. Use one of {sorted(ALLOWED_CORR)}")
+        info = basic_info(df)
+        ms_df = missing_summary(df)
+        num_cols, cat_cols, dt_cols = detect_column_types(df)
+        corr_payload = None
+        if len(num_cols) >= 2:
+            mcd = int(scfg.get("max_corr_dims") or 8)
+            use_cols = num_cols[: max(2, min(mcd, len(num_cols)))]
+            corr = correlation_matrix(df[use_cols], method=method)
+            corr_payload = {"labels": list(corr.columns), "matrix": corr.values.tolist()}
+        out["summary"] = {
+            "rows": int(info.get("rows", len(df))),
+            "columns": int(info.get("columns", df.shape[1] if not df.empty else 0)),
+            "memory": str(info.get("memory", "")),
+            "columns_info": {"numeric": num_cols, "categorical": cat_cols, "datetime": dt_cols},
+            "columns_stats": _column_summaries(df, top_n=5),
+            "missing": (ms_df.to_dict(orient="records") if hasattr(ms_df, "to_dict") else []),
+            "corr": corr_payload,
+            "corr_method": method,
+            "preview": _preview_records(df, max_rows=50),
+        }
+
+    # Visualize
+    if "visualize" in cfg:
+        v = cfg.get("visualize") or {}
+        spec_v = _build_figure(
+            df,
+            chart=str(v.get("chart")),
+            x=v.get("x"),
+            y=v.get("y"),
+            color=v.get("color"),
+            bins=int(v.get("bins") or 30),
+            log_x=bool(v.get("log_x") or False),
+            log_y=bool(v.get("log_y") or False),
+            facet_row=v.get("facet_row"),
+            facet_col=v.get("facet_col"),
+            norm=v.get("norm"),
+            barmode=v.get("barmode"),
+        )
+        out["visualize"] = {"figure": spec_v}
+
+    # Profile
+    if "profile" in cfg:
+        pcfg = cfg.get("profile") or {}
+        try:
+            from profile_ops import generate_profile_html  # type: ignore
+        except Exception as e:
+            raise HTTPException(500, detail=f"Profiling import error: {e}")
+        html = generate_profile_html(
+            df,
+            minimal=bool(pcfg.get("minimal", True)),
+            sample_n=int(pcfg.get("sample_n") or 2000),
+        )
+        out["profile_html"] = html
+
+    # Model
+    if "model" in cfg:
+        mcfg = cfg.get("model") or {}
+        target = mcfg.get("target")
+        if not target:
+            raise HTTPException(400, detail="model.target is required")
+        task = _infer_task(df[target])
+        pipe, X, y = _build_model_pipeline(df, target, task)
+        from sklearn.model_selection import cross_val_score, cross_val_predict, StratifiedKFold, KFold  # type: ignore
+        from sklearn import metrics as skm  # type: ignore
+        folds = max(2, int(mcfg.get("cv") or 5))
+        if task == "classification":
+            cv_split = StratifiedKFold(n_splits=folds, shuffle=True, random_state=42)
+            acc = cross_val_score(pipe, X, y, cv=cv_split, scoring="accuracy", n_jobs=-1)
+            f1m = cross_val_score(pipe, X, y, cv=cv_split, scoring="f1_macro", n_jobs=-1)
+            y_pred = cross_val_predict(pipe, X, y, cv=cv_split, n_jobs=-1)
+            labels = sorted(list(pd.unique(y)))
+            cm = skm.confusion_matrix(y, y_pred, labels=labels)
+            pipe.fit(X, y)
+            imps = _feature_importances_from_pipeline(pipe)
+            out["model"] = {
+                "task": task,
+                "labels": [str(l) for l in labels],
+                "confusion_matrix": cm.tolist(),
+                "metrics": {
+                    "accuracy_mean": float(acc.mean()),
+                    "accuracy_std": float(acc.std()),
+                    "f1_macro_mean": float(f1m.mean()),
+                    "f1_macro_std": float(f1m.std()),
+                },
+                "feature_importance": imps,
+            }
+        else:
+            cv_split = KFold(n_splits=folds, shuffle=True, random_state=42)
+            rmse = -cross_val_score(pipe, X, y, cv=cv_split, scoring="neg_root_mean_squared_error", n_jobs=-1)
+            r2 = cross_val_score(pipe, X, y, cv=cv_split, scoring="r2", n_jobs=-1)
+            mae = -cross_val_score(pipe, X, y, cv=cv_split, scoring="neg_mean_absolute_error", n_jobs=-1)
+            pipe.fit(X, y)
+            imps = _feature_importances_from_pipeline(pipe)
+            out["model"] = {
+                "task": task,
+                "metrics": {
+                    "rmse_mean": float(rmse.mean()),
+                    "rmse_std": float(rmse.std()),
+                    "r2_mean": float(r2.mean()),
+                    "r2_std": float(r2.std()),
+                    "mae_mean": float(mae.mean()),
+                    "mae_std": float(mae.std()),
+                },
+                "feature_importance": imps,
+            }
+
+    return out
+
+
+# Optional legacy Flask app (not mounted)
+# flask_app = Flask(__name__)
+# @flask_app.get("/health")
+# def health():  # pragma: no cover - tiny example
+#     return {"ok": True}
 
 
 # Starlette root that mounts each framework
@@ -953,11 +1364,21 @@ if not static_dir.exists():
     # Fallback to app static dir for dev
     static_dir = BACKEND_DIR / "static"
 
+async def app_home(request):
+    # Serve the existing HTML page without Django, directly from templates
+    try:
+        html_path = BACKEND_DIR / "templates" / "studio" / "home.html"
+        text = html_path.read_text(encoding="utf-8")
+        return HTMLResponse(text)
+    except Exception as e:
+        return HTMLResponse(f"<h1>Error</h1><pre>{e}</pre>", status_code=500)
+
 routes = [
+    # FastAPI-only UI (serves the existing HTML template)
+    Route("/", endpoint=app_home),
+    Route("/app", endpoint=app_home),
     Mount("/static", app=StaticFiles(directory=str(static_dir), html=False), name="static"),
     Mount("/api", app=api),
-    Mount("/legacy", app=WSGIMiddleware(flask_app)),
-    Mount("/", app=django_asgi),
 ]
 
 app = Starlette(routes=routes)
