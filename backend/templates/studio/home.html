@@ -39,6 +39,15 @@
               <option value="kendall">Kendall</option>
             </select>
           </label>
+          <label>Filter
+            <input type="text" id="filterQuery" name="filter_query" placeholder="e.g. feature_1 > 0 and category == 'A'" style="width:260px;" />
+          </label>
+          <label>Columns
+            <input type="text" id="includeCols" name="include_cols" placeholder="col1,col2" style="width:200px;" />
+          </label>
+          <label>Limit
+            <input type="number" id="limitRows" name="limit_rows" value="" min="0" step="1" style="width:90px;" />
+          </label>
           <button class="btn" type="submit">Get Summary</button>
         </form>
         <div style="margin-top:10px; display:flex; gap:8px; align-items:center;">
@@ -170,7 +179,10 @@
       dbg.innerHTML = 'Generating sample summary...';
       try {
         const cm = document.getElementById('corrMethod').value;
-        const res = await fetch('/api/sample/summary?'+ new URLSearchParams({corr_method: cm}));
+        const fq = document.getElementById('filterQuery').value;
+        const ic = document.getElementById('includeCols').value;
+        const lr = document.getElementById('limitRows').value;
+        const res = await fetch('/api/sample/summary?'+ new URLSearchParams({corr_method: cm, filter_query: fq, include_cols: ic, limit_rows: lr}));
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Request failed');
         dbg.textContent = JSON.stringify(data, null, 2);
@@ -275,6 +287,10 @@
         fd.append('barmode', document.getElementById('barmode').value || '');
         fd.append('log_x', document.getElementById('logX').checked ? '1' : '0');
         fd.append('log_y', document.getElementById('logY').checked ? '1' : '0');
+        // Filters
+        fd.append('filter_query', document.getElementById('filterQuery').value || '');
+        fd.append('include_cols', document.getElementById('includeCols').value || '');
+        fd.append('limit_rows', document.getElementById('limitRows').value || '');
         const res = await fetch('/api/eda/visualize', { method:'POST', body: fd });
         const data = await res.json();
         if(!res.ok){ alert(data.detail || data.error || 'Failed'); return; }
@@ -292,6 +308,9 @@
         params.set('barmode', document.getElementById('barmode').value || '');
         params.set('log_x', document.getElementById('logX').checked ? '1' : '0');
         params.set('log_y', document.getElementById('logY').checked ? '1' : '0');
+        params.set('filter_query', document.getElementById('filterQuery').value || '');
+        params.set('include_cols', document.getElementById('includeCols').value || '');
+        params.set('limit_rows', document.getElementById('limitRows').value || '');
         const res = await fetch('/api/sample/visualize?' + params.toString());
         const data = await res.json();
         if(!res.ok){ alert(data.detail || data.error || 'Failed'); return; }
@@ -364,7 +383,10 @@
         if(!url){ alert('Enter URL'); return; }
         dbg.style.display='block'; dbg.textContent='Fetching CSV...';
         const cm = document.getElementById('corrMethod').value;
-        const res = await fetch('/api/crawl/csv?'+ new URLSearchParams({url, corr_method: cm}));
+        const fq = document.getElementById('filterQuery').value;
+        const ic = document.getElementById('includeCols').value;
+        const lr = document.getElementById('limitRows').value;
+        const res = await fetch('/api/crawl/csv?'+ new URLSearchParams({url, corr_method: cm, filter_query: fq, include_cols: ic, limit_rows: lr}));
         const data = await res.json();
         if(!res.ok){ alert(data.detail || 'Failed'); return; }
         dbg.textContent = JSON.stringify(data, null, 2);

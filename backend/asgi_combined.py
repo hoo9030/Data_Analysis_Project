@@ -170,6 +170,41 @@ async def _fetch_bytes(url: str, *, timeout: float = 15.0) -> bytes:
         return resp.content
 
 
+# ----- DataFrame filtering helpers ------------------------------------------
+def _parse_cols(cols: str | None, df: pd.DataFrame) -> list[str] | None:
+    if not cols:
+        return None
+    items = [c.strip() for c in cols.split(",") if c.strip()]
+    return [c for c in items if c in df.columns]
+
+
+def _apply_filters(
+    df: pd.DataFrame,
+    *,
+    include_cols: str | None = None,
+    filter_query: str | None = None,
+    limit_rows: int | None = None,
+) -> pd.DataFrame:
+    dfx = df
+    # include columns first
+    cols = _parse_cols(include_cols, dfx)
+    if cols:
+        dfx = dfx[cols]
+    # apply query if provided
+    if filter_query:
+        q = str(filter_query).strip()
+        if len(q) > 0:
+            try:
+                # Try numexpr first (safer), fallback to python for strings
+                dfx = dfx.query(q, engine="numexpr")
+            except Exception:
+                dfx = dfx.query(q, engine="python")
+    # limit rows
+    if isinstance(limit_rows, int) and limit_rows and limit_rows > 0:
+        dfx = dfx.head(limit_rows)
+    return dfx
+
+
 ALLOWED_CORR = {"pearson", "spearman", "kendall"}
 
 
@@ -181,12 +216,17 @@ async def eda_summary(
     encoding: str = Form("utf-8"),
     max_corr_dims: int = Form(8),
     corr_method: str = Form("pearson"),
+    filter_query: str | None = Form(None),
+    include_cols: str | None = Form(None),
+    limit_rows: int | None = Form(None),
 ):
     data = await file.read()
     # Blank values act as auto-detect
     auto_sep = sep or None
     auto_enc = encoding or None
     df, used_enc, used_sep = _smart_read_csv(data, sep=auto_sep, decimal=decimal or ".", encoding=auto_enc)
+    # Apply optional filters
+    df = _apply_filters(df, include_cols=include_cols, filter_query=filter_query, limit_rows=limit_rows)
     info = basic_info(df)
     # Missing summary
     ms_df = missing_summary(df)
@@ -227,8 +267,17 @@ async def eda_summary(
 
 
 @api.get("/sample/summary")
-async def sample_summary(rows: int = 500, seed: int = 42, max_corr_dims: int = 8, corr_method: str = "pearson"):
+async def sample_summary(
+    rows: int = 500,
+    seed: int = 42,
+    max_corr_dims: int = 8,
+    corr_method: str = "pearson",
+    filter_query: str | None = None,
+    include_cols: str | None = None,
+    limit_rows: int | None = None,
+):
     df = generate_sample_data(rows=rows, seed=seed)
+    df = _apply_filters(df, include_cols=include_cols, filter_query=filter_query, limit_rows=limit_rows)
     info = basic_info(df)
     ms_df = missing_summary(df)
     ms_list = ms_df.to_dict(orient="records")
@@ -495,10 +544,14 @@ async def eda_visualize(
     facet_col: str | None = Form(None),
     norm: str | None = Form(None),
     barmode: str | None = Form(None),
+    filter_query: str | None = Form(None),
+    include_cols: str | None = Form(None),
+    limit_rows: int | None = Form(None),
 ):
     try:
         data = await file.read()
         df, _, _ = _smart_read_csv(data)
+        df = _apply_filters(df, include_cols=include_cols, filter_query=filter_query, limit_rows=limit_rows)
         spec = _build_figure(
             df,
             chart=chart,
@@ -535,8 +588,12 @@ async def sample_visualize(
     facet_col: str | None = None,
     norm: str | None = None,
     barmode: str | None = None,
+    filter_query: str | None = None,
+    include_cols: str | None = None,
+    limit_rows: int | None = None,
 ):
     df = generate_sample_data(rows=rows, seed=seed)
+    df = _apply_filters(df, include_cols=include_cols, filter_query=filter_query, limit_rows=limit_rows)
     spec = _build_figure(
         df,
         chart=chart,
@@ -577,9 +634,21 @@ async def profile_html(
 # ----- Crawling endpoints ----------------------------------------------------
 
 @api.get("/crawl/csv")
-async def crawl_csv(url: str, sep: str | None = None, decimal: str | None = None, encoding: str | None = None, max_corr_dims: int = 8, corr_method: str = "pearson"):
+async def crawl_csv(
+    url: str,
+    sep: str | None = None,
+    decimal: str | None = None,
+    encoding: str | None = None,
+    max_corr_dims: int = 8,
+    corr_method: str = "pearson",
+    filter_query: str | None = None,
+    include_cols: str | None = None,
+    limit_rows: int | None = None,
+):
     data = await _fetch_bytes(url)
     df, used_enc, used_sep = _smart_read_csv(data, sep=sep, decimal=decimal or ".", encoding=encoding)
+    # Apply optional filters
+    df = _apply_filters(df, include_cols=include_cols, filter_query=filter_query, limit_rows=limit_rows)
     info = basic_info(df)
     ms_df = missing_summary(df)
     ms_list = ms_df.to_dict(orient="records") if hasattr(ms_df, "to_dict") else []
