@@ -48,6 +48,30 @@
           <label>Limit
             <input type="number" id="limitRows" name="limit_rows" value="" min="0" step="1" style="width:90px;" />
           </label>
+          <label>Group By
+            <input type="text" id="groupBy" name="group_by" placeholder="e.g. category" style="width:160px;" />
+          </label>
+          <label>Agg
+            <select id="aggFunc" name="agg">
+              <option value="">(auto)</option>
+              <option value="mean" selected>mean</option>
+              <option value="sum">sum</option>
+              <option value="count">count</option>
+              <option value="median">median</option>
+              <option value="min">min</option>
+              <option value="max">max</option>
+              <option value="nunique">nunique</option>
+            </select>
+          </label>
+          <label>Values
+            <input type="text" id="valueCols" name="value_cols" placeholder="numeric1,numeric2" style="width:180px;" />
+          </label>
+          <label>Pivot Col
+            <input type="text" id="pivotCol" name="pivot_col" placeholder="(optional)" style="width:140px;" />
+          </label>
+          <label>Pivot Fill
+            <input type="number" id="pivotFill" name="pivot_fill" placeholder="" style="width:100px;" />
+          </label>
           <button class="btn" type="submit">Get Summary</button>
         </form>
         <div style="margin-top:10px; display:flex; gap:8px; align-items:center;">
@@ -83,7 +107,7 @@
             <select id="chartType">
               <option value="histogram">Histogram</option>
               <option value="scatter">Scatter</option>
-              <option value="box">Box</option>              <option value="bar_count">Bar Count</option>              <option value="line">Line</option>              <option value="density_contour">KDE (Contour)</option>              <option value="density_heatmap">2D Density</option>              <option value="violin">Violin</option>              <option value="scatter_matrix">Scatter Matrix</option>              <option value="feature_importance">Feature Importance</option>
+              <option value="box">Box</option>              <option value="bar_count">Bar Count</option>              <option value="bar_value">Bar (Value)</option>              <option value="line">Line</option>              <option value="density_contour">KDE (Contour)</option>              <option value="density_heatmap">2D Density</option>              <option value="violin">Violin</option>              <option value="scatter_matrix">Scatter Matrix</option>              <option value="feature_importance">Feature Importance</option>
             </select>
           </label>
           <label>X
@@ -182,7 +206,12 @@
         const fq = document.getElementById('filterQuery').value;
         const ic = document.getElementById('includeCols').value;
         const lr = document.getElementById('limitRows').value;
-        const res = await fetch('/api/sample/summary?'+ new URLSearchParams({corr_method: cm, filter_query: fq, include_cols: ic, limit_rows: lr}));
+        const gb = document.getElementById('groupBy').value;
+        const ag = document.getElementById('aggFunc').value;
+        const vc = document.getElementById('valueCols').value;
+        const pv = document.getElementById('pivotCol').value;
+        const pf = document.getElementById('pivotFill').value;
+        const res = await fetch('/api/sample/summary?'+ new URLSearchParams({corr_method: cm, filter_query: fq, include_cols: ic, limit_rows: lr, group_by: gb, agg: ag, value_cols: vc, pivot_col: pv, pivot_fill: pf}));
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Request failed');
         dbg.textContent = JSON.stringify(data, null, 2);
@@ -287,10 +316,15 @@
         fd.append('barmode', document.getElementById('barmode').value || '');
         fd.append('log_x', document.getElementById('logX').checked ? '1' : '0');
         fd.append('log_y', document.getElementById('logY').checked ? '1' : '0');
-        // Filters
+        // Filters + Aggregation
         fd.append('filter_query', document.getElementById('filterQuery').value || '');
         fd.append('include_cols', document.getElementById('includeCols').value || '');
         fd.append('limit_rows', document.getElementById('limitRows').value || '');
+        fd.append('group_by', document.getElementById('groupBy').value || '');
+        fd.append('agg', document.getElementById('aggFunc').value || '');
+        fd.append('value_cols', document.getElementById('valueCols').value || '');
+        fd.append('pivot_col', document.getElementById('pivotCol').value || '');
+        fd.append('pivot_fill', document.getElementById('pivotFill').value || '');
         const res = await fetch('/api/eda/visualize', { method:'POST', body: fd });
         const data = await res.json();
         if(!res.ok){ alert(data.detail || data.error || 'Failed'); return; }
@@ -311,6 +345,11 @@
         params.set('filter_query', document.getElementById('filterQuery').value || '');
         params.set('include_cols', document.getElementById('includeCols').value || '');
         params.set('limit_rows', document.getElementById('limitRows').value || '');
+        params.set('group_by', document.getElementById('groupBy').value || '');
+        params.set('agg', document.getElementById('aggFunc').value || '');
+        params.set('value_cols', document.getElementById('valueCols').value || '');
+        params.set('pivot_col', document.getElementById('pivotCol').value || '');
+        params.set('pivot_fill', document.getElementById('pivotFill').value || '');
         const res = await fetch('/api/sample/visualize?' + params.toString());
         const data = await res.json();
         if(!res.ok){ alert(data.detail || data.error || 'Failed'); return; }
@@ -386,7 +425,12 @@
         const fq = document.getElementById('filterQuery').value;
         const ic = document.getElementById('includeCols').value;
         const lr = document.getElementById('limitRows').value;
-        const res = await fetch('/api/crawl/csv?'+ new URLSearchParams({url, corr_method: cm, filter_query: fq, include_cols: ic, limit_rows: lr}));
+        const gb = document.getElementById('groupBy').value;
+        const ag = document.getElementById('aggFunc').value;
+        const vc = document.getElementById('valueCols').value;
+        const pv = document.getElementById('pivotCol').value;
+        const pf = document.getElementById('pivotFill').value;
+        const res = await fetch('/api/crawl/csv?'+ new URLSearchParams({url, corr_method: cm, filter_query: fq, include_cols: ic, limit_rows: lr, group_by: gb, agg: ag, value_cols: vc, pivot_col: pv, pivot_fill: pf}));
         const data = await res.json();
         if(!res.ok){ alert(data.detail || 'Failed'); return; }
         dbg.textContent = JSON.stringify(data, null, 2);

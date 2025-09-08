@@ -205,6 +205,69 @@ def _apply_filters(
     return dfx
 
 
+ALLOWED_AGG = {"count", "mean", "sum", "min", "max", "median", "nunique"}
+
+
+def _apply_aggregation(
+    df: pd.DataFrame,
+    *,
+    group_by: str | None = None,
+    agg: str | None = None,
+    value_cols: str | None = None,
+    pivot_col: str | None = None,
+    pivot_fill: float | int | None = None,
+) -> pd.DataFrame:
+    # No-op if nothing requested
+    if not group_by and not pivot_col:
+        return df
+    agg_func = (agg or "mean").lower()
+    if agg_func not in ALLOWED_AGG:
+        agg_func = "mean"
+    gb_cols = _parse_cols(group_by, df) or []
+    val_cols = _parse_cols(value_cols, df)
+    if val_cols is None:
+        # default to numeric columns
+        val_cols = df.select_dtypes(include=["number"]).columns.tolist()
+    if not val_cols:
+        return df
+
+    # If pivot requested, compute directly from base df to retain pivot column
+    if pivot_col:
+        if pivot_col not in df.columns:
+            return df
+        val = val_cols[0]
+        idx = gb_cols if gb_cols else None
+        try:
+            pt = df.pivot_table(
+                index=idx,
+                columns=pivot_col,
+                values=val,
+                aggfunc=agg_func,
+                fill_value=pivot_fill,
+            )
+            try:
+                pt.columns = [str(c) for c in pt.columns.to_flat_index()]
+            except Exception:
+                pt.columns = [str(c) for c in pt.columns]
+            return pt.reset_index() if idx is not None else pt.reset_index(drop=True)
+        except Exception:
+            return df
+
+    # Otherwise plain groupby if requested
+    if gb_cols:
+        try:
+            out = (
+                df.groupby(gb_cols, dropna=False)[val_cols]
+                .agg(agg_func)
+                .reset_index()
+            )
+            return out
+        except Exception:
+            return df
+
+    return df
+
+
 ALLOWED_CORR = {"pearson", "spearman", "kendall"}
 
 
@@ -219,14 +282,20 @@ async def eda_summary(
     filter_query: str | None = Form(None),
     include_cols: str | None = Form(None),
     limit_rows: int | None = Form(None),
+    group_by: str | None = Form(None),
+    agg: str | None = Form(None),
+    value_cols: str | None = Form(None),
+    pivot_col: str | None = Form(None),
+    pivot_fill: float | None = Form(None),
 ):
     data = await file.read()
     # Blank values act as auto-detect
     auto_sep = sep or None
     auto_enc = encoding or None
     df, used_enc, used_sep = _smart_read_csv(data, sep=auto_sep, decimal=decimal or ".", encoding=auto_enc)
-    # Apply optional filters
+    # Apply optional filters then aggregation
     df = _apply_filters(df, include_cols=include_cols, filter_query=filter_query, limit_rows=limit_rows)
+    df = _apply_aggregation(df, group_by=group_by, agg=agg, value_cols=value_cols, pivot_col=pivot_col, pivot_fill=pivot_fill)
     info = basic_info(df)
     # Missing summary
     ms_df = missing_summary(df)
@@ -275,9 +344,15 @@ async def sample_summary(
     filter_query: str | None = None,
     include_cols: str | None = None,
     limit_rows: int | None = None,
+    group_by: str | None = None,
+    agg: str | None = None,
+    value_cols: str | None = None,
+    pivot_col: str | None = None,
+    pivot_fill: float | None = None,
 ):
     df = generate_sample_data(rows=rows, seed=seed)
     df = _apply_filters(df, include_cols=include_cols, filter_query=filter_query, limit_rows=limit_rows)
+    df = _apply_aggregation(df, group_by=group_by, agg=agg, value_cols=value_cols, pivot_col=pivot_col, pivot_fill=pivot_fill)
     info = basic_info(df)
     ms_df = missing_summary(df)
     ms_list = ms_df.to_dict(orient="records")
@@ -369,6 +444,17 @@ def _build_figure(
         )
         if barmode:
             fig.update_layout(barmode=barmode)
+    elif chart in ("bar_value", "bar_y"):
+        if not (x and y):
+            raise HTTPException(400, detail="x and y are required for bar_value")
+        fig = px.bar(
+            df,
+            x=x,
+            y=y,
+            color=color,
+            facet_row=facet_row,
+            facet_col=facet_col,
+        )
     elif chart in ("scatter", "point"):
         if not (x and y):
             raise HTTPException(400, detail="x and y are required for scatter")
@@ -547,11 +633,17 @@ async def eda_visualize(
     filter_query: str | None = Form(None),
     include_cols: str | None = Form(None),
     limit_rows: int | None = Form(None),
+    group_by: str | None = Form(None),
+    agg: str | None = Form(None),
+    value_cols: str | None = Form(None),
+    pivot_col: str | None = Form(None),
+    pivot_fill: float | None = Form(None),
 ):
     try:
         data = await file.read()
         df, _, _ = _smart_read_csv(data)
         df = _apply_filters(df, include_cols=include_cols, filter_query=filter_query, limit_rows=limit_rows)
+        df = _apply_aggregation(df, group_by=group_by, agg=agg, value_cols=value_cols, pivot_col=pivot_col, pivot_fill=pivot_fill)
         spec = _build_figure(
             df,
             chart=chart,
@@ -591,9 +683,15 @@ async def sample_visualize(
     filter_query: str | None = None,
     include_cols: str | None = None,
     limit_rows: int | None = None,
+    group_by: str | None = None,
+    agg: str | None = None,
+    value_cols: str | None = None,
+    pivot_col: str | None = None,
+    pivot_fill: float | None = None,
 ):
     df = generate_sample_data(rows=rows, seed=seed)
     df = _apply_filters(df, include_cols=include_cols, filter_query=filter_query, limit_rows=limit_rows)
+    df = _apply_aggregation(df, group_by=group_by, agg=agg, value_cols=value_cols, pivot_col=pivot_col, pivot_fill=pivot_fill)
     spec = _build_figure(
         df,
         chart=chart,
@@ -644,11 +742,17 @@ async def crawl_csv(
     filter_query: str | None = None,
     include_cols: str | None = None,
     limit_rows: int | None = None,
+    group_by: str | None = None,
+    agg: str | None = None,
+    value_cols: str | None = None,
+    pivot_col: str | None = None,
+    pivot_fill: float | None = None,
 ):
     data = await _fetch_bytes(url)
     df, used_enc, used_sep = _smart_read_csv(data, sep=sep, decimal=decimal or ".", encoding=encoding)
-    # Apply optional filters
+    # Apply optional filters then aggregation
     df = _apply_filters(df, include_cols=include_cols, filter_query=filter_query, limit_rows=limit_rows)
+    df = _apply_aggregation(df, group_by=group_by, agg=agg, value_cols=value_cols, pivot_col=pivot_col, pivot_fill=pivot_fill)
     info = basic_info(df)
     ms_df = missing_summary(df)
     ms_list = ms_df.to_dict(orient="records") if hasattr(ms_df, "to_dict") else []
