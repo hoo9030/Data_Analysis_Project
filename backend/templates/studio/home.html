@@ -100,6 +100,11 @@
         <table id="colsTbl"></table>
       </div>
 
+      <div id="previewSection" style="display:none;">
+        <div class="section-title">Preview</div>
+        <table id="previewTbl"></table>
+      </div>
+
       <div id="vizSection" style="display:none; margin-top:14px;">
         <div class="section-title">Visualization</div>
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
@@ -269,6 +274,21 @@
 
       // Viz controls
       setupVizControls(ci);
+
+      // Preview table (post-filter/aggregation)
+      const pv = Array.isArray(data.preview) ? data.preview : [];
+      const psec = document.getElementById('previewSection');
+      const ptbl = document.getElementById('previewTbl');
+      if(pv.length){
+        psec.style.display = 'block';
+        const cols = Object.keys(pv[0] || {});
+        const thead = '<tr>' + cols.map(c=>`<th>${escapeHtml(c)}</th>`).join('') + '</tr>';
+        const tbody = pv.map(r=>'<tr>' + cols.map(c=>`<td>${escapeHtml(r[c])}</td>`).join('') + '</tr>').join('');
+        ptbl.innerHTML = thead + tbody;
+      } else {
+        psec.style.display = 'none';
+        ptbl.innerHTML = '';
+      }
     }
 
     function metricCard(label, value){

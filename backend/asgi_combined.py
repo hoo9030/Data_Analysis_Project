@@ -268,6 +268,33 @@ def _apply_aggregation(
     return df
 
 
+def _preview_records(df: pd.DataFrame, max_rows: int = 50):
+    try:
+        n = max(1, min(int(max_rows or 50), len(df)))
+    except Exception:
+        n = min(50, len(df))
+    if n <= 0:
+        n = 1
+    pre = df.head(n).copy()
+    # Convert datetime-like columns to strings for JSON safety
+    try:
+        dt_cols = pre.select_dtypes(include=["datetime", "datetimetz", "datetime64[ns]"]).columns.tolist()
+        if dt_cols:
+            pre[dt_cols] = pre[dt_cols].astype(str)
+    except Exception:
+        pass
+    # Replace NaN with None
+    try:
+        pre = pre.where(pd.notna(pre), None)
+    except Exception:
+        pass
+    try:
+        return pre.to_dict(orient="records")
+    except Exception:
+        # Fallback: stringify all
+        return pre.astype(str).to_dict(orient="records")
+
+
 ALLOWED_CORR = {"pearson", "spearman", "kendall"}
 
 
@@ -332,6 +359,7 @@ async def eda_summary(
         "corr": corr_payload,
         "corr_method": method,
         "detected": {"encoding": used_enc, "sep": used_sep},
+        "preview": _preview_records(df, max_rows=50),
     }
 
 
@@ -380,6 +408,7 @@ async def sample_summary(
         "missing": ms_list,
         "corr": corr_payload,
         "corr_method": method,
+        "preview": _preview_records(df, max_rows=50),
     }
 
 
@@ -775,6 +804,7 @@ async def crawl_csv(
         "corr": corr_payload,
         "corr_method": method,
         "detected": {"encoding": used_enc, "sep": used_sep},
+        "preview": _preview_records(df, max_rows=50),
     }
 
 
