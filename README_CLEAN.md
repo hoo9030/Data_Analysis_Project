@@ -25,10 +25,13 @@ Dataset APIs (CSV)
  - DELETE `http://127.0.0.1:8000/api/datasets/{id}`
  - GET  `http://127.0.0.1:8000/api/datasets/{id}/nulls?limit=100000` (결측치 현황; limit 미지정 시 전체)
  - POST `http://127.0.0.1:8000/api/datasets/{id}/cast` JSON: `{ "column": "col", "to": "int|float|string|datetime|bool|category", "mode": "coerce|strict", "out_id": "(옵션)" }`
-  - GET  `http://127.0.0.1:8000/api/datasets/{id}/distribution?column=col&bins=20&topk=20&limit=50000&dropna=true`
+ - GET  `http://127.0.0.1:8000/api/datasets/{id}/distribution?column=col&bins=20&topk=20&limit=50000&dropna=true`
      - 숫자형: 히스토그램(bins)
      - 문자형: Top-K 빈도
   - GET  `http://127.0.0.1:8000/api/datasets/{id}/corr?method=pearson&limit=50000` (수치 컬럼 상관행렬)
+  - GET  `http://127.0.0.1:8000/api/datasets/{id}/sample.csv?rows=100` (상위 N행을 CSV로 다운로드)
+  - GET  `http://127.0.0.1:8000/api/datasets/{id}/filter.csv?columns=col1,col2&limit=10000&query=price>10 and category=='A'`
+    - 주의: query는 pandas DataFrame.query 문법 사용
  - GET  `http://127.0.0.1:8000/api/info` (앱 정보 JSON)
 
 Web UI
@@ -37,6 +40,7 @@ Web UI
 - 기능: 업로드, 목록, 미리보기, 요약 통계 확인
   - 추가: 결측치 현황 조회, 타입 변환(새 데이터셋 생성)
   - 추가: 분포(숫자형 히스토그램/문자형 Top-K), 상관관계(테이블)
+  - 추가: 샘플/필터 CSV 다운로드 폼
 - 팁: 새 기능을 추가할 때 `app/web/`의 UI 섹션을 함께 확장하세요.
 
 Environment

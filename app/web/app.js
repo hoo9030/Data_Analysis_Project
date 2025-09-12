@@ -311,6 +311,32 @@
     });
   }
 
+  function bindSampleFilter() {
+    $('#sample-form').addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const id = $('#sample-id').value.trim();
+      const rows = Number($('#sample-rows').value || 100);
+      if (!id) return;
+      const url = new URL(`${apiBase}/datasets/${encodeURIComponent(id)}/sample.csv`);
+      url.searchParams.set('rows', String(rows));
+      window.open(url.toString(), '_blank');
+    });
+
+    $('#filter-form').addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const id = $('#filter-id').value.trim();
+      const cols = $('#filter-cols').value.trim();
+      const limit = Number($('#filter-limit').value || 10000);
+      const query = $('#filter-query').value.trim();
+      if (!id) return;
+      const url = new URL(`${apiBase}/datasets/${encodeURIComponent(id)}/filter.csv`);
+      if (cols) url.searchParams.set('columns', cols);
+      if (limit >= 0) url.searchParams.set('limit', String(limit));
+      if (query) url.searchParams.set('query', query);
+      window.open(url.toString(), '_blank');
+    });
+  }
+
   window.addEventListener('DOMContentLoaded', async () => {
     bindUpload();
     bindPreview();
@@ -320,6 +346,7 @@
     bindCast();
     bindDistribution();
     bindCorrelation();
+    bindSampleFilter();
     await loadInfo();
     await refreshList();
     // Autofill IDs to new sections when list refresh set preview/describe IDs

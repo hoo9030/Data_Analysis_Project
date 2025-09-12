@@ -6,9 +6,10 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 from fastapi import APIRouter, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 import shutil
 from pydantic import BaseModel, Field
+import io
 
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
@@ -547,3 +548,75 @@ def delete_dataset(dataset_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
     return {"status": "deleted", "dataset_id": dataset_id}
+
+
+def _read_filtered_df(path: str, query: Optional[str], columns: Optional[List[str]], limit: int, chunksize: int = 50000) -> pd.DataFrame:
+    acc: List[pd.DataFrame] = []
+    total = 0
+    for chunk in pd.read_csv(path, chunksize=max(1000, chunksize)):
+        dfc = chunk
+        if query:
+            try:
+                dfc = dfc.query(query, engine="python")
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Invalid query: {e}")
+        if columns:
+            cols = [c for c in columns if c in dfc.columns]
+            if cols:
+                dfc = dfc[cols]
+        if limit > 0 and total + len(dfc) > limit:
+            dfc = dfc.iloc[: max(0, limit - total)]
+        acc.append(dfc)
+        total += len(dfc)
+        if limit > 0 and total >= limit:
+            break
+    if not acc:
+        return pd.DataFrame(columns=columns or [])
+    return pd.concat(acc, ignore_index=True)
+
+
+@router.get("/{dataset_id}/sample.csv")
+def download_sample_csv(dataset_id: str, rows: int = 100) -> StreamingResponse:
+    path = _csv_path(dataset_id)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    try:
+        n = max(1, min(int(rows), 100000))
+        df = pd.read_csv(path, nrows=n)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
+
+    buf = io.StringIO()
+    df.to_csv(buf, index=False)
+    buf.seek(0)
+    filename = f"{dataset_id}_sample_{n}.csv"
+    return StreamingResponse(buf, media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+
+@router.get("/{dataset_id}/filter.csv")
+def download_filter_csv(
+    dataset_id: str,
+    query: Optional[str] = None,
+    columns: Optional[str] = None,
+    limit: int = 10000,
+) -> StreamingResponse:
+    path = _csv_path(dataset_id)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    cols_list: Optional[List[str]] = None
+    if columns:
+        cols_list = [c.strip() for c in columns.split(",") if c.strip()]
+    try:
+        lim = max(0, min(int(limit), 500000))
+        df = _read_filtered_df(path, query=query, columns=cols_list, limit=lim)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to filter CSV: {e}")
+
+    buf = io.StringIO()
+    df.to_csv(buf, index=False)
+    buf.seek(0)
+    filename = f"{dataset_id}_filter.csv"
+    return StreamingResponse(buf, media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={filename}"})

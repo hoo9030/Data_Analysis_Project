@@ -117,6 +117,24 @@
         </form>
         <div id="corr-view"></div>
       </section>
+
+      <section class="card">
+        <h2>9) 샘플/필터 다운로드</h2>
+        <form id="sample-form">
+          <label>Dataset ID: <input type="text" id="sample-id" required /></label>
+          <label>Rows: <input type="number" id="sample-rows" value="100" min="1" max="100000" /></label>
+          <button type="submit">샘플 CSV 다운로드</button>
+        </form>
+        <hr />
+        <form id="filter-form">
+          <label>Dataset ID: <input type="text" id="filter-id" required /></label>
+          <label>Columns(쉼표): <input type="text" id="filter-cols" placeholder="예: col1,col2" /></label>
+          <label>Limit: <input type="number" id="filter-limit" value="10000" min="0" max="500000" /></label>
+          <label>Query: <input type="text" id="filter-query" placeholder="예: price > 10 and category == 'A'" /></label>
+          <button type="submit">필터 CSV 다운로드</button>
+        </form>
+        <div class="muted">주의: Query는 pandas query 문법을 사용합니다.</div>
+      </section>
     </main>
 
     <footer>
