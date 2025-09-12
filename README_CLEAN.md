@@ -12,6 +12,7 @@ run.bat
 
 - http://127.0.0.1:8000/
 - http://127.0.0.1:8000/api/healthz
+- http://127.0.0.1:8000/web  (웹 UI)
 
 Dataset APIs (CSV)
 
@@ -19,6 +20,12 @@ Dataset APIs (CSV)
 - GET  `http://127.0.0.1:8000/api/datasets`
 - GET  `http://127.0.0.1:8000/api/datasets/{id}/preview?nrows=20`
 - GET  `http://127.0.0.1:8000/api/datasets/{id}/describe?limit=5000&include_all=true`
+
+Web UI
+
+- 경로: `/web` (정적 HTML/JS)
+- 기능: 업로드, 목록, 미리보기, 요약 통계 확인
+- 팁: 새 기능을 추가할 때 `app/web/`의 UI 섹션을 함께 확장하세요.
 
 Environment
 

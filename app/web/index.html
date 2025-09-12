@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Data Analysis Studio</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Data Analysis Studio</h1>
+      <div id="app-info"></div>
+      <nav>
+        <a href="/docs" target="_blank">OpenAPI Docs</a>
+        <a href="/redoc" target="_blank">ReDoc</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="card">
+        <h2>1) CSV 업로드</h2>
+        <form id="upload-form">
+          <label>Dataset ID(선택): <input type="text" id="dataset-id" placeholder="자동 생성" /></label>
+          <label>CSV 파일: <input type="file" id="csv-file" accept=".csv,text/csv" required /></label>
+          <button type="submit">업로드</button>
+        </form>
+        <div id="upload-result" class="muted"></div>
+      </section>
+
+      <section class="card">
+        <h2>2) 데이터셋 목록</h2>
+        <div class="toolbar">
+          <button id="refresh-list">새로고침</button>
+        </div>
+        <div id="datasets-list"></div>
+      </section>
+
+      <section class="card">
+        <h2>3) 미리보기</h2>
+        <form id="preview-form">
+          <label>Dataset ID: <input type="text" id="preview-id" required /></label>
+          <label>행 수: <input type="number" id="preview-n" value="20" min="1" max="1000" /></label>
+          <button type="submit">미리보기</button>
+        </form>
+        <div id="preview-table"></div>
+      </section>
+
+      <section class="card">
+        <h2>4) 요약 통계</h2>
+        <form id="describe-form">
+          <label>Dataset ID: <input type="text" id="describe-id" required /></label>
+          <label>샘플 행 제한: <input type="number" id="describe-limit" value="5000" min="10" max="200000" /></label>
+          <label>전체 컬럼 포함: <input type="checkbox" id="describe-all" checked /></label>
+          <button type="submit">요약 보기</button>
+        </form>
+        <div id="describe-table"></div>
+      </section>
+    </main>
+
+    <footer>
+      <span class="muted">UI는 단순 데모용입니다. 대용량 처리/보안은 서버에서 관리됩니다.</span>
+    </footer>
+
+    <script src="./app.js"></script>
+  </body>
+  </html>
+
