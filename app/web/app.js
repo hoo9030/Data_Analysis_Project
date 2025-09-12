@@ -185,11 +185,67 @@
     });
   }
 
+  function bindNulls() {
+    $('#nulls-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const id = $('#nulls-id').value.trim();
+      const limitStr = $('#nulls-limit').value.trim();
+      const limit = limitStr ? Number(limitStr) : null;
+      const container = $('#nulls-table');
+      container.innerHTML = '';
+      if (!id) { container.textContent = 'Dataset ID를 입력하세요'; return; }
+      const url = new URL(`${apiBase}/datasets/${encodeURIComponent(id)}/nulls`);
+      if (limit) url.searchParams.set('limit', String(limit));
+      try {
+        const data = await fetchJSON(url.toString());
+        const cols = ['column','total_rows','nulls','null_pct'];
+        container.appendChild(renderTable(cols, data.items || []));
+      } catch (e) {
+        container.textContent = `결측치 조회 실패: ${e.message}`;
+      }
+    });
+  }
+
+  function bindCast() {
+    $('#cast-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const source = $('#cast-source').value.trim();
+      const column = $('#cast-column').value.trim();
+      const to = $('#cast-type').value;
+      const out = $('#cast-out').value.trim();
+      const strict = $('#cast-strict').checked;
+      const result = $('#cast-result');
+      result.textContent = '변환 중...';
+      if (!source || !column) { result.textContent = 'Source/Column을 입력하세요'; return; }
+      try {
+        const body = { column, to, mode: strict ? 'strict' : 'coerce' };
+        if (out) body.out_id = out;
+        const data = await fetchJSON(`${apiBase}/datasets/${encodeURIComponent(source)}/cast`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        result.textContent = `완료: ${data.dataset_id} (before_nulls=${data.before_nulls}, after_nulls=${data.after_nulls}, new_nulls=${data.coerced_new_nulls})`;
+        // Refresh list to show the new dataset
+        await refreshList();
+        // Autofill ids for convenience
+        $('#preview-id').value = data.dataset_id;
+        $('#describe-id').value = data.dataset_id;
+        $('#nulls-id').value = data.dataset_id;
+        $('#cast-source').value = data.dataset_id;
+      } catch (e) {
+        result.textContent = `변환 실패: ${e.message}`;
+      }
+    });
+  }
+
   window.addEventListener('DOMContentLoaded', async () => {
     bindUpload();
     bindPreview();
     bindDescribe();
     bindToolbar();
+    bindNulls();
+    bindCast();
     await loadInfo();
     await refreshList();
   });

@@ -8,6 +8,7 @@ import pandas as pd
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 import shutil
+from pydantic import BaseModel, Field
 
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
@@ -174,6 +175,187 @@ def describe_dataset(dataset_id: str, limit: int = 5000, include_all: bool = Tru
         "dtypes": dtypes,
         "stats": stats,
         "sample_rows": len(df),
+    }
+
+
+@router.get("/{dataset_id}/nulls")
+def nulls_overview(dataset_id: str, limit: Optional[int] = None, chunksize: int = 50000) -> Dict[str, Any]:
+    """
+    Compute per-column null counts and percentages.
+    - If limit is provided, reads up to `limit` rows using chunks.
+    - Otherwise processes the entire file in chunks.
+    """
+    path = _csv_path(dataset_id)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    total_rows = 0
+    null_counts: Dict[str, int] = {}
+    try:
+        rows_left = limit if limit is not None else None
+        for chunk in pd.read_csv(path, chunksize=max(1000, chunksize)):
+            if rows_left is not None:
+                # Trim chunk to rows_left
+                if rows_left <= 0:
+                    break
+                if len(chunk) > rows_left:
+                    chunk = chunk.iloc[:rows_left]
+                rows_left -= len(chunk)
+
+            total_rows += len(chunk)
+            isna = chunk.isna().sum()
+            for col, cnt in isna.items():
+                null_counts[col] = null_counts.get(col, 0) + int(cnt)
+        if total_rows == 0:
+            # Empty file or zero rows processed
+            df = pd.read_csv(path, nrows=0)
+            columns = list(df.columns)
+            items = [
+                {"column": c, "total_rows": 0, "nulls": 0, "null_pct": 0.0}
+                for c in columns
+            ]
+            return {"dataset_id": dataset_id, "items": items, "total_rows": 0}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
+
+    # Build response
+    columns = list(null_counts.keys())
+    items = []
+    for c in columns:
+        n = null_counts.get(c, 0)
+        pct = (n / total_rows * 100.0) if total_rows else 0.0
+        items.append({"column": c, "total_rows": total_rows, "nulls": n, "null_pct": round(pct, 3)})
+
+    # Keep items sorted by null percentage desc
+    items.sort(key=lambda x: x["null_pct"], reverse=True)
+    return {"dataset_id": dataset_id, "items": items, "total_rows": total_rows}
+
+
+class CastRequest(BaseModel):
+    column: str = Field(..., description="Column to cast")
+    to: str = Field(..., description="Target type: int|float|string|datetime|bool|category")
+    out_id: Optional[str] = Field(None, description="New dataset id; generated if omitted")
+    mode: str = Field("coerce", description="coerce|strict for parsing errors")
+
+
+@router.post("/{dataset_id}/cast")
+def cast_column(dataset_id: str, req: CastRequest) -> Dict[str, Any]:
+    """
+    Cast a column to a target dtype and save as a new dataset.
+    - mode=coerce: invalid values become NaN/NaT
+    - mode=strict: fails on invalid conversion
+    """
+    path = _csv_path(dataset_id)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    try:
+        df = pd.read_csv(path)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
+
+    col = req.column
+    if col not in df.columns:
+        raise HTTPException(status_code=404, detail=f"Column not found: {col}")
+
+    target = req.to.lower().strip()
+    mode = req.mode.lower().strip() if req.mode else "coerce"
+    if target not in {"int", "float", "string", "datetime", "bool", "category"}:
+        raise HTTPException(status_code=400, detail=f"Unsupported type: {target}")
+    if mode not in {"coerce", "strict"}:
+        raise HTTPException(status_code=400, detail=f"Unsupported mode: {mode}")
+
+    errors = "coerce" if mode == "coerce" else "raise"
+    before_nulls = int(df[col].isna().sum())
+
+    def _cast_series(s: pd.Series) -> pd.Series:
+        if target == "int":
+            s2 = pd.to_numeric(s, errors=errors)
+            # Prefer nullable integer dtype
+            try:
+                return s2.astype("Int64")
+            except Exception:
+                return s2.astype("int64")
+        if target == "float":
+            s2 = pd.to_numeric(s, errors=errors)
+            return s2.astype("float64")
+        if target == "string":
+            # Pandas nullable string dtype
+            try:
+                return s.astype("string")
+            except Exception:
+                return s.astype(str)
+        if target == "datetime":
+            s2 = pd.to_datetime(s, errors=errors, utc=False)
+            return s2
+        if target == "bool":
+            base = s
+            try:
+                tmp = base.astype(str).str.strip().str.lower()
+                mapping = {
+                    "true": True, "1": True, "yes": True, "y": True, "t": True,
+                    "false": False, "0": False, "no": False, "n": False, "f": False,
+                }
+                s2 = tmp.map(mapping)
+                if mode == "strict" and s2.isna().any():
+                    raise ValueError("Invalid boolean tokens present")
+                return s2.astype("boolean")
+            except Exception as e:
+                if mode == "strict":
+                    raise
+                # coerce: non-mapped remain NaN
+                return s2.astype("boolean")
+        if target == "category":
+            return s.astype("category")
+        return s
+
+    try:
+        df[col] = _cast_series(df[col])
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Cast failed: {e}")
+
+    after_nulls = int(df[col].isna().sum())
+    coerced_new_nulls = max(0, after_nulls - before_nulls)
+
+    out_id = (req.out_id or str(uuid.uuid4())).strip() or str(uuid.uuid4())
+    out_path = _csv_path(out_id)
+    if os.path.exists(out_path):
+        raise HTTPException(status_code=409, detail=f"Output dataset already exists: {out_id}")
+
+    try:
+        _ensure_dirs()
+        df.to_csv(out_path, index=False)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save new dataset: {e}")
+
+    # Update metadata
+    meta = _load_meta()
+    created_at = _now_iso()
+    dtypes = {c: str(t) for c, t in df.dtypes.items()}
+    meta["datasets"][out_id] = {
+        "id": out_id,
+        "filename": os.path.basename(out_path),
+        "original_name": f"derive:{dataset_id}",
+        "path": os.path.relpath(out_path, os.getcwd()),
+        "size_bytes": os.path.getsize(out_path),
+        "columns": list(df.columns),
+        "dtypes": dtypes,
+        "sampled_rows": min(50, len(df)),
+        "created_at": created_at,
+        "updated_at": created_at,
+    }
+    _save_meta(meta)
+
+    return {
+        "status": "ok",
+        "source_id": dataset_id,
+        "dataset_id": out_id,
+        "column": col,
+        "target_type": target,
+        "before_nulls": before_nulls,
+        "after_nulls": after_nulls,
+        "coerced_new_nulls": coerced_new_nulls,
+        "metadata": meta["datasets"][out_id],
     }
 
 

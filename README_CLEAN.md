@@ -23,12 +23,15 @@ Dataset APIs (CSV)
 - GET  `http://127.0.0.1:8000/api/datasets/{id}/describe?limit=5000&include_all=true`
  - GET  `http://127.0.0.1:8000/api/datasets/{id}/download`
  - DELETE `http://127.0.0.1:8000/api/datasets/{id}`
+  - GET  `http://127.0.0.1:8000/api/datasets/{id}/nulls?limit=100000` (결측치 현황; limit 미지정 시 전체)
+  - POST `http://127.0.0.1:8000/api/datasets/{id}/cast` JSON: `{ "column": "col", "to": "int|float|string|datetime|bool|category", "mode": "coerce|strict", "out_id": "(옵션)" }`
  - GET  `http://127.0.0.1:8000/api/info` (앱 정보 JSON)
 
 Web UI
 
 - 경로: `/web` (정적 HTML/JS)
 - 기능: 업로드, 목록, 미리보기, 요약 통계 확인
+  - 추가: 결측치 현황 조회, 타입 변환(새 데이터셋 생성)
 - 팁: 새 기능을 추가할 때 `app/web/`의 UI 섹션을 함께 확장하세요.
 
 Environment

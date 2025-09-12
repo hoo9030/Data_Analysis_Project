@@ -55,6 +55,38 @@
         </form>
         <div id="describe-table"></div>
       </section>
+
+      <section class="card">
+        <h2>5) 결측치 현황</h2>
+        <form id="nulls-form">
+          <label>Dataset ID: <input type="text" id="nulls-id" required /></label>
+          <label>행 제한(옵션): <input type="number" id="nulls-limit" placeholder="전체" min="1" /></label>
+          <button type="submit">결측치 보기</button>
+        </form>
+        <div id="nulls-table"></div>
+      </section>
+
+      <section class="card">
+        <h2>6) 타입 변환</h2>
+        <form id="cast-form">
+          <label>Source ID: <input type="text" id="cast-source" required /></label>
+          <label>Column: <input type="text" id="cast-column" required /></label>
+          <label>Target Type:
+            <select id="cast-type">
+              <option value="int">int</option>
+              <option value="float">float</option>
+              <option value="string">string</option>
+              <option value="datetime">datetime</option>
+              <option value="bool">bool</option>
+              <option value="category">category</option>
+            </select>
+          </label>
+          <label>Out ID(옵션): <input type="text" id="cast-out" placeholder="자동 생성" /></label>
+          <label><input type="checkbox" id="cast-strict" /> strict 모드(변환 실패 시 에러)</label>
+          <button type="submit">변환 실행</button>
+        </form>
+        <div id="cast-result" class="muted"></div>
+      </section>
     </main>
 
     <footer>
@@ -64,4 +96,3 @@
     <script src="./app.js"></script>
   </body>
   </html>
-
