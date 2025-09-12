@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+import shutil
 
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
@@ -174,3 +176,37 @@ def describe_dataset(dataset_id: str, limit: int = 5000, include_all: bool = Tru
         "sample_rows": len(df),
     }
 
+
+@router.get("/{dataset_id}/download")
+def download_dataset(dataset_id: str):
+    path = _csv_path(dataset_id)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    filename = os.path.basename(path)
+    return FileResponse(path, media_type="text/csv", filename=filename)
+
+
+@router.delete("/{dataset_id}")
+def delete_dataset(dataset_id: str) -> Dict[str, Any]:
+    path = _csv_path(dataset_id)
+    meta = _load_meta()
+    existed = False
+
+    # Remove file if exists
+    if os.path.exists(path):
+        try:
+            os.remove(path)
+            existed = True
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to delete file: {e}")
+
+    # Remove metadata
+    if meta.get("datasets") and dataset_id in meta["datasets"]:
+        del meta["datasets"][dataset_id]
+        _save_meta(meta)
+        existed = True or existed
+
+    if not existed:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    return {"status": "deleted", "dataset_id": dataset_id}

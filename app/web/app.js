@@ -55,22 +55,44 @@
     }
   }
 
+  function renderDatasetList(items) {
+    const table = el('table', { class: 'table' });
+    const thead = el('thead');
+    const trh = el('tr');
+    ['id','original_name','size_bytes','created_at','actions'].forEach(c => trh.appendChild(el('th', {}, c)));
+    thead.appendChild(trh);
+    const tbody = el('tbody');
+    (items || []).forEach(x => {
+      const tr = el('tr', { 'data-id': x.id });
+      tr.appendChild(el('td', {}, x.id));
+      tr.appendChild(el('td', {}, x.original_name));
+      tr.appendChild(el('td', {}, String(x.size_bytes)));
+      tr.appendChild(el('td', {}, x.created_at));
+      const actions = el('td');
+      actions.append(
+        el('button', { class: 'btn-action', 'data-act': 'preview', title: '미리보기' }, 'Preview'), ' ',
+        el('button', { class: 'btn-action', 'data-act': 'describe', title: '요약' }, 'Describe'), ' ',
+        el('a', { href: `${apiBase}/datasets/${encodeURIComponent(x.id)}/download`, target: '_blank' }, 'Download'), ' ',
+        el('button', { class: 'btn-danger', 'data-act': 'delete', title: '삭제' }, 'Delete')
+      );
+      tr.appendChild(actions);
+      tbody.appendChild(tr);
+    });
+    table.appendChild(thead);
+    table.appendChild(tbody);
+    return table;
+  }
+
   async function refreshList() {
     const container = $('#datasets-list');
     container.innerHTML = '';
     try {
       const data = await fetchJSON(`${apiBase}/datasets`);
-      const cols = ['id', 'original_name', 'size_bytes', 'created_at'];
-      const rows = (data.items || []).map(x => ({
-        id: x.id,
-        original_name: x.original_name,
-        size_bytes: x.size_bytes,
-        created_at: x.created_at,
-      }));
-      container.appendChild(renderTable(cols, rows));
+      const items = (data.items || []);
+      container.appendChild(renderDatasetList(items));
       // Autofill last id to preview/describe inputs
-      if (rows.length) {
-        const lastId = rows[0].id;
+      if (items.length) {
+        const lastId = items[0].id;
         $('#preview-id').value = lastId;
         $('#describe-id').value = lastId;
       }
@@ -136,6 +158,31 @@
 
   function bindToolbar() {
     $('#refresh-list').addEventListener('click', refreshList);
+    // Delegate actions on dataset rows
+    $('#datasets-list').addEventListener('click', async (ev) => {
+      const t = ev.target;
+      if (!(t instanceof HTMLElement)) return;
+      const act = t.getAttribute('data-act');
+      if (!act) return;
+      const tr = t.closest('tr');
+      const id = tr?.getAttribute('data-id');
+      if (!id) return;
+      if (act === 'preview') {
+        $('#preview-id').value = id;
+        document.getElementById('preview-form').scrollIntoView({ behavior: 'smooth' });
+      } else if (act === 'describe') {
+        $('#describe-id').value = id;
+        document.getElementById('describe-form').scrollIntoView({ behavior: 'smooth' });
+      } else if (act === 'delete') {
+        if (!confirm(`정말 삭제할까요?\n${id}`)) return;
+        try {
+          await fetchJSON(`${apiBase}/datasets/${encodeURIComponent(id)}`, { method: 'DELETE' });
+          await refreshList();
+        } catch (e) {
+          alert(`삭제 실패: ${e.message}`);
+        }
+      }
+    });
   }
 
   window.addEventListener('DOMContentLoaded', async () => {

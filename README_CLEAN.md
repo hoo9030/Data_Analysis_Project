@@ -21,6 +21,8 @@ Dataset APIs (CSV)
 - GET  `http://127.0.0.1:8000/api/datasets`
 - GET  `http://127.0.0.1:8000/api/datasets/{id}/preview?nrows=20`
 - GET  `http://127.0.0.1:8000/api/datasets/{id}/describe?limit=5000&include_all=true`
+ - GET  `http://127.0.0.1:8000/api/datasets/{id}/download`
+ - DELETE `http://127.0.0.1:8000/api/datasets/{id}`
  - GET  `http://127.0.0.1:8000/api/info` (앱 정보 JSON)
 
 Web UI
