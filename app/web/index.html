@@ -87,6 +87,36 @@
         </form>
         <div id="cast-result" class="muted"></div>
       </section>
+
+      <section class="card">
+        <h2>7) 분포(Distribution)</h2>
+        <form id="dist-form">
+          <label>Dataset ID: <input type="text" id="dist-id" required /></label>
+          <label>Column: <input type="text" id="dist-col" required /></label>
+          <label>Bins(숫자형): <input type="number" id="dist-bins" value="20" min="1" max="200" /></label>
+          <label>TopK(문자형): <input type="number" id="dist-topk" value="20" min="1" max="200" /></label>
+          <label><input type="checkbox" id="dist-dropna" checked /> 결측치 제외</label>
+          <button type="submit">분포 계산</button>
+        </form>
+        <div id="dist-view"></div>
+      </section>
+
+      <section class="card">
+        <h2>8) 상관관계(Correlation)</h2>
+        <form id="corr-form">
+          <label>Dataset ID: <input type="text" id="corr-id" required /></label>
+          <label>Method:
+            <select id="corr-method">
+              <option value="pearson" selected>pearson</option>
+              <option value="spearman">spearman</option>
+              <option value="kendall">kendall</option>
+            </select>
+          </label>
+          <label>행 제한: <input type="number" id="corr-limit" value="50000" min="100" /></label>
+          <button type="submit">상관분석</button>
+        </form>
+        <div id="corr-view"></div>
+      </section>
     </main>
 
     <footer>

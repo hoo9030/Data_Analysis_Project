@@ -359,6 +359,161 @@ def cast_column(dataset_id: str, req: CastRequest) -> Dict[str, Any]:
     }
 
 
+@router.get("/{dataset_id}/distribution")
+def distribution(
+    dataset_id: str,
+    column: str,
+    bins: int = 20,
+    topk: int = 20,
+    limit: Optional[int] = 50000,
+    dropna: bool = True,
+) -> Dict[str, Any]:
+    """
+    Compute a simple distribution for a column.
+    - Numeric: histogram with `bins` buckets
+    - Non-numeric: top-K value counts
+    """
+    path = _csv_path(dataset_id)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    try:
+        nrows = None if (limit is None or limit <= 0) else int(limit)
+        df = pd.read_csv(path, nrows=nrows)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
+
+    if column not in df.columns:
+        raise HTTPException(status_code=404, detail=f"Column not found: {column}")
+
+    s = df[column]
+    na_count = int(s.isna().sum())
+    total = int(len(s))
+
+    # Decide if numeric
+    is_numeric = pd.api.types.is_numeric_dtype(s)
+    if not is_numeric:
+        try:
+            s_num = pd.to_numeric(s, errors="coerce")
+            numeric_ratio = float(s_num.notna().mean()) if len(s_num) else 0.0
+            is_numeric = numeric_ratio >= 0.8
+        except Exception:
+            is_numeric = False
+
+    if is_numeric:
+        # Numeric histogram
+        s_num = pd.to_numeric(s, errors="coerce")
+        if dropna:
+            s_num = s_num.dropna()
+        if len(s_num) == 0:
+            return {
+                "dataset_id": dataset_id,
+                "column": column,
+                "type": "numeric",
+                "total": total,
+                "na_count": na_count,
+                "items": [],
+                "bins": bins,
+            }
+        try:
+            cut = pd.cut(s_num, bins=max(1, int(bins)), include_lowest=True)
+            counts = cut.value_counts().sort_index()
+            items = []
+            for interval, cnt in counts.items():
+                try:
+                    left = float(interval.left)
+                    right = float(interval.right)
+                except Exception:
+                    left = None
+                    right = None
+                items.append({
+                    "left": left,
+                    "right": right,
+                    "count": int(cnt),
+                    "label": str(interval),
+                })
+            return {
+                "dataset_id": dataset_id,
+                "column": column,
+                "type": "numeric",
+                "total": total,
+                "na_count": na_count,
+                "bins": bins,
+                "min": float(s_num.min()) if len(s_num) else None,
+                "max": float(s_num.max()) if len(s_num) else None,
+                "items": items,
+            }
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to compute histogram: {e}")
+    else:
+        # Categorical top-K
+        try:
+            counts = s.value_counts(dropna=True)
+            items = []
+            for val, cnt in counts.head(max(1, int(topk))).items():
+                items.append({
+                    "value": None if pd.isna(val) else str(val),
+                    "count": int(cnt),
+                })
+            return {
+                "dataset_id": dataset_id,
+                "column": column,
+                "type": "categorical",
+                "total": total,
+                "na_count": na_count,
+                "topk": topk,
+                "unique": int(counts.size),
+                "items": items,
+            }
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to compute value counts: {e}")
+
+
+@router.get("/{dataset_id}/corr")
+def correlation(dataset_id: str, method: str = "pearson", limit: Optional[int] = 50000) -> Dict[str, Any]:
+    """
+    Compute correlation matrix across numeric columns using pandas DataFrame.corr.
+    method: pearson|spearman|kendall
+    """
+    path = _csv_path(dataset_id)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    if method not in {"pearson", "spearman", "kendall"}:
+        raise HTTPException(status_code=400, detail=f"Unsupported method: {method}")
+
+    try:
+        nrows = None if (limit is None or limit <= 0) else int(limit)
+        df = pd.read_csv(path, nrows=nrows)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
+
+    num = df.select_dtypes(include="number")
+    if num.shape[1] < 2:
+        return {"dataset_id": dataset_id, "columns": list(num.columns), "matrix": {}, "rows": int(num.shape[0])}
+
+    try:
+        corr = num.corr(method=method)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to compute correlation: {e}")
+
+    matrix: Dict[str, Dict[str, Optional[float]]] = {}
+    for r in corr.index:
+        row = {}
+        for c in corr.columns:
+            v = corr.loc[r, c]
+            row[c] = None if pd.isna(v) else float(v)
+        matrix[r] = row
+
+    return {
+        "dataset_id": dataset_id,
+        "method": method,
+        "columns": list(corr.columns),
+        "matrix": matrix,
+        "rows": int(num.shape[0]),
+    }
+
+
 @router.get("/{dataset_id}/download")
 def download_dataset(dataset_id: str):
     path = _csv_path(dataset_id)

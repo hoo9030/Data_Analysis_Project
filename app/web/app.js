@@ -37,6 +37,25 @@
     return renderTable(columns, rows);
   }
 
+  function renderBars(items, labelKey, countKey) {
+    const max = items.reduce((m, x) => Math.max(m, Number(x[countKey] || 0)), 0) || 1;
+    const table = el('table', { class: 'table' });
+    const thead = el('thead');
+    thead.appendChild(el('tr', {}, el('th', {}, 'label'), el('th', {}, 'count'), el('th', {}, 'chart')));
+    table.appendChild(thead);
+    const tbody = el('tbody');
+    items.forEach(it => {
+      const label = String(it[labelKey] ?? '');
+      const cnt = Number(it[countKey] || 0);
+      const w = Math.max(2, Math.round(cnt / max * 100));
+      const bar = el('div', { class: 'bar', style: `width:${w}%` });
+      const tr = el('tr', {}, el('td', {}, label), el('td', {}, String(cnt)), el('td', {}, bar));
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    return table;
+  }
+
   async function fetchJSON(url, opts) {
     const res = await fetch(url, opts);
     const text = await res.text();
@@ -239,6 +258,59 @@
     });
   }
 
+  function bindDistribution() {
+    $('#dist-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const id = $('#dist-id').value.trim();
+      const col = $('#dist-col').value.trim();
+      const bins = Number($('#dist-bins').value || 20);
+      const topk = Number($('#dist-topk').value || 20);
+      const dropna = $('#dist-dropna').checked;
+      const container = $('#dist-view');
+      container.innerHTML = '';
+      if (!id || !col) { container.textContent = 'Dataset/Column을 입력하세요'; return; }
+      const url = new URL(`${apiBase}/datasets/${encodeURIComponent(id)}/distribution`);
+      url.searchParams.set('column', col);
+      url.searchParams.set('bins', String(bins));
+      url.searchParams.set('topk', String(topk));
+      url.searchParams.set('dropna', String(dropna));
+      try {
+        const data = await fetchJSON(url.toString());
+        if (data.type === 'numeric') {
+          container.appendChild(el('div', { class: 'muted' }, `min=${data.min}, max=${data.max}, bins=${data.bins}, total=${data.total}, na=${data.na_count}`));
+          const items = (data.items || []).map(x => ({ label: x.label || `${x.left}~${x.right}`, count: x.count }));
+          container.appendChild(renderBars(items, 'label', 'count'));
+        } else {
+          container.appendChild(el('div', { class: 'muted' }, `topk=${data.topk}, total=${data.total}, na=${data.na_count}, unique=${data.unique}`));
+          container.appendChild(renderBars(data.items || [], 'value', 'count'));
+        }
+      } catch (e) {
+        container.textContent = `분포 계산 실패: ${e.message}`;
+      }
+    });
+  }
+
+  function bindCorrelation() {
+    $('#corr-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const id = $('#corr-id').value.trim();
+      const method = $('#corr-method').value;
+      const limit = Number($('#corr-limit').value || 50000);
+      const container = $('#corr-view');
+      container.innerHTML = '';
+      if (!id) { container.textContent = 'Dataset ID를 입력하세요'; return; }
+      const url = new URL(`${apiBase}/datasets/${encodeURIComponent(id)}/corr`);
+      url.searchParams.set('method', method);
+      if (limit) url.searchParams.set('limit', String(limit));
+      try {
+        const data = await fetchJSON(url.toString());
+        container.appendChild(renderMatrix(data.matrix || {}));
+      } catch (e) {
+        container.textContent = `상관분석 실패: ${e.message}`;
+      }
+    });
+  }
+
   window.addEventListener('DOMContentLoaded', async () => {
     bindUpload();
     bindPreview();
@@ -246,7 +318,18 @@
     bindToolbar();
     bindNulls();
     bindCast();
+    bindDistribution();
+    bindCorrelation();
     await loadInfo();
     await refreshList();
+    // Autofill IDs to new sections when list refresh set preview/describe IDs
+    const syncIds = () => {
+      $('#dist-id').value = $('#preview-id').value;
+      $('#corr-id').value = $('#preview-id').value;
+      $('#nulls-id').value = $('#preview-id').value;
+      $('#cast-source').value = $('#preview-id').value;
+    };
+    // Initial sync after brief delay
+    setTimeout(syncIds, 200);
   });
 })();
