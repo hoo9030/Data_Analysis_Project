@@ -43,3 +43,6 @@ dist/
 # SQLite and local databases (legacy)
 *.sqlite3
 *.db
+
+# Project data (uploaded datasets)
+data/
