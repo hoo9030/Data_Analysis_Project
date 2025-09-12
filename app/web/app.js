@@ -48,7 +48,7 @@
 
   async function loadInfo() {
     try {
-      const info = await fetchJSON(`${window.location.origin}/`);
+      const info = await fetchJSON(`${apiBase}/info`);
       $('#app-info').textContent = `${info.name} v${info.version}`;
     } catch (e) {
       $('#app-info').textContent = '서버 정보 불러오기 실패';
@@ -147,4 +147,3 @@
     await refreshList();
   });
 })();
-

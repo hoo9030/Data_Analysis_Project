@@ -13,6 +13,7 @@ run.bat
 - http://127.0.0.1:8000/
 - http://127.0.0.1:8000/api/healthz
 - http://127.0.0.1:8000/web  (웹 UI)
+  - 참고: 이제 루트(`/`)는 `/web`으로 리다이렉트됩니다.
 
 Dataset APIs (CSV)
 
@@ -20,6 +21,7 @@ Dataset APIs (CSV)
 - GET  `http://127.0.0.1:8000/api/datasets`
 - GET  `http://127.0.0.1:8000/api/datasets/{id}/preview?nrows=20`
 - GET  `http://127.0.0.1:8000/api/datasets/{id}/describe?limit=5000&include_all=true`
+ - GET  `http://127.0.0.1:8000/api/info` (앱 정보 JSON)
 
 Web UI
 
@@ -32,6 +34,7 @@ Environment
 - HOST default 127.0.0.1
 - PORT default 8000
 - RELOAD set 0 to disable auto-reload (default on)
+- OPEN set 0 to prevent auto-opening the Web UI (default on)
 
 Notes
 

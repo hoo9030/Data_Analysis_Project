@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from .health import router as health_router
 from .datasets import router as datasets_router
+from .info import router as info_router
 
 api_router = APIRouter()
 
@@ -10,3 +11,6 @@ api_router.include_router(health_router, tags=["health"])
 
 # Dataset management endpoints
 api_router.include_router(datasets_router)
+
+# Basic app info
+api_router.include_router(info_router, tags=["info"])

@@ -43,6 +43,18 @@ if not defined PORT set "PORT=8000"
 set "RELOAD_FLAG=--reload"
 if "%RELOAD%"=="0" set "RELOAD_FLAG="
 
+REM Auto-open Web UI unless OPEN=0
+set "OPEN=%OPEN%"
+if not defined OPEN set "OPEN=1"
+if not "%OPEN%"=="0" (
+  REM Open in background after a short delay; fallback if PowerShell not available
+  where powershell >nul 2>&1 && (
+    start "" powershell -NoProfile -Command "Start-Sleep -Seconds 2; Start-Process 'http://%HOST%:%PORT%/web'"
+  ) || (
+    start "" "http://%HOST%:%PORT%/web"
+  )
+)
+
 echo [INFO] Launching ASGI at http://%HOST%:%PORT% %RELOAD_FLAG%
 "%PYEXE%" -m uvicorn app.main:app %RELOAD_FLAG% --host %HOST% --port %PORT%
 

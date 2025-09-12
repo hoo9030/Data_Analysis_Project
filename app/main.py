@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 
 from . import __version__
 from .api import api_router
@@ -23,11 +23,8 @@ def create_app() -> FastAPI:
 
     @app.get("/")
     def root():
-        return {
-            "name": "Data Analysis Studio",
-            "message": "Fresh start",
-            "version": __version__,
-        }
+        # Redirect root to the web UI
+        return RedirectResponse(url="/web", status_code=307)
 
     app.include_router(api_router, prefix="/api")
 
