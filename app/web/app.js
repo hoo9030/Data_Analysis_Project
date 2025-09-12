@@ -337,6 +337,104 @@
     });
   }
 
+  function bindPreprocess() {
+    // fillna
+    $('#fillna-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const source = $('#fillna-source').value.trim();
+      const cols = $('#fillna-cols').value.trim();
+      const strategy = $('#fillna-strategy').value;
+      const value = $('#fillna-value').value;
+      const out = $('#fillna-out').value.trim();
+      const result = $('#fillna-result');
+      result.textContent = '실행 중...';
+      if (!source) { result.textContent = 'Source ID를 입력하세요'; return; }
+      const body = { strategy };
+      if (cols) body.columns = cols.split(',').map(s => s.trim()).filter(Boolean);
+      if (strategy === 'value') body.value = value;
+      if (out) body.out_id = out;
+      try {
+        const data = await fetchJSON(`${apiBase}/datasets/${encodeURIComponent(source)}/fillna`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        });
+        result.textContent = `완료: ${data.dataset_id} (filled_total=${data.filled_total})`;
+        await refreshList();
+        $('#preview-id').value = data.dataset_id;
+        $('#describe-id').value = data.dataset_id;
+        $('#nulls-id').value = data.dataset_id;
+        $('#cast-source').value = data.dataset_id;
+        $('#fillna-source').value = data.dataset_id;
+        $('#drop-source').value = data.dataset_id;
+        $('#rename-source').value = data.dataset_id;
+      } catch (e) {
+        result.textContent = `실패: ${e.message}`;
+      }
+    });
+
+    // drop
+    $('#drop-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const source = $('#drop-source').value.trim();
+      const cols = $('#drop-cols').value.trim();
+      const out = $('#drop-out').value.trim();
+      const result = $('#drop-result');
+      result.textContent = '실행 중...';
+      if (!source || !cols) { result.textContent = 'Source/Columns 입력'; return; }
+      const body = { columns: cols.split(',').map(s => s.trim()).filter(Boolean) };
+      if (out) body.out_id = out;
+      try {
+        const data = await fetchJSON(`${apiBase}/datasets/${encodeURIComponent(source)}/drop`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        });
+        result.textContent = `완료: ${data.dataset_id} (dropped=${(data.dropped||[]).join(',')})`;
+        await refreshList();
+        $('#preview-id').value = data.dataset_id;
+        $('#describe-id').value = data.dataset_id;
+        $('#nulls-id').value = data.dataset_id;
+        $('#cast-source').value = data.dataset_id;
+        $('#fillna-source').value = data.dataset_id;
+        $('#drop-source').value = data.dataset_id;
+        $('#rename-source').value = data.dataset_id;
+      } catch (e) {
+        result.textContent = `실패: ${e.message}`;
+      }
+    });
+
+    // rename
+    $('#rename-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const source = $('#rename-source').value.trim();
+      const mappingStr = $('#rename-mapping').value.trim();
+      const out = $('#rename-out').value.trim();
+      const result = $('#rename-result');
+      result.textContent = '실행 중...';
+      if (!source || !mappingStr) { result.textContent = 'Source/Mapping 입력'; return; }
+      const mapping = {};
+      mappingStr.split(',').map(x => x.trim()).filter(Boolean).forEach(pair => {
+        const [k, v] = pair.split(':');
+        if (k && v) mapping[k.trim()] = v.trim();
+      });
+      const body = { mapping };
+      if (out) body.out_id = out;
+      try {
+        const data = await fetchJSON(`${apiBase}/datasets/${encodeURIComponent(source)}/rename`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        });
+        result.textContent = `완료: ${data.dataset_id}`;
+        await refreshList();
+        $('#preview-id').value = data.dataset_id;
+        $('#describe-id').value = data.dataset_id;
+        $('#nulls-id').value = data.dataset_id;
+        $('#cast-source').value = data.dataset_id;
+        $('#fillna-source').value = data.dataset_id;
+        $('#drop-source').value = data.dataset_id;
+        $('#rename-source').value = data.dataset_id;
+      } catch (e) {
+        result.textContent = `실패: ${e.message}`;
+      }
+    });
+  }
+
   window.addEventListener('DOMContentLoaded', async () => {
     bindUpload();
     bindPreview();
@@ -347,6 +445,7 @@
     bindDistribution();
     bindCorrelation();
     bindSampleFilter();
+    bindPreprocess();
     await loadInfo();
     await refreshList();
     // Autofill IDs to new sections when list refresh set preview/describe IDs

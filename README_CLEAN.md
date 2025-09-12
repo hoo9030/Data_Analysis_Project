@@ -32,6 +32,9 @@ Dataset APIs (CSV)
   - GET  `http://127.0.0.1:8000/api/datasets/{id}/sample.csv?rows=100` (상위 N행을 CSV로 다운로드)
   - GET  `http://127.0.0.1:8000/api/datasets/{id}/filter.csv?columns=col1,col2&limit=10000&query=price>10 and category=='A'`
     - 주의: query는 pandas DataFrame.query 문법 사용
+  - POST `http://127.0.0.1:8000/api/datasets/{id}/fillna` JSON: `{ "columns": [..](옵션), "strategy": "value|mean|median|mode", "value": any(옵션), "out_id": "(옵션)" }`
+  - POST `http://127.0.0.1:8000/api/datasets/{id}/drop` JSON: `{ "columns": ["col1", "col2"], "out_id": "(옵션)" }`
+  - POST `http://127.0.0.1:8000/api/datasets/{id}/rename` JSON: `{ "mapping": { "old": "new", ... }, "out_id": "(옵션)" }`
  - GET  `http://127.0.0.1:8000/api/info` (앱 정보 JSON)
 
 Web UI
@@ -41,6 +44,7 @@ Web UI
   - 추가: 결측치 현황 조회, 타입 변환(새 데이터셋 생성)
   - 추가: 분포(숫자형 히스토그램/문자형 Top-K), 상관관계(테이블)
   - 추가: 샘플/필터 CSV 다운로드 폼
+  - 추가: 기초 전처리(결측치 채우기, 컬럼 삭제/이름변경)
 - 팁: 새 기능을 추가할 때 `app/web/`의 UI 섹션을 함께 확장하세요.
 
 Environment

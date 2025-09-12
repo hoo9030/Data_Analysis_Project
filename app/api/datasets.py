@@ -360,6 +360,220 @@ def cast_column(dataset_id: str, req: CastRequest) -> Dict[str, Any]:
     }
 
 
+class FillNARequest(BaseModel):
+    columns: Optional[List[str]] = Field(None, description="Target columns; default all")
+    strategy: str = Field("value", description="value|mean|median|mode")
+    value: Optional[Any] = Field(None, description="Fill value when strategy=value")
+    out_id: Optional[str] = None
+
+
+@router.post("/{dataset_id}/fillna")
+def fillna_dataset(dataset_id: str, req: FillNARequest) -> Dict[str, Any]:
+    path = _csv_path(dataset_id)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    try:
+        df = pd.read_csv(path)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
+
+    cols = req.columns or list(df.columns)
+    cols = [c for c in cols if c in df.columns]
+    if not cols:
+        raise HTTPException(status_code=400, detail="No valid columns to fill")
+
+    strategy = req.strategy.lower().strip() if req.strategy else "value"
+    before_nulls = {c: int(df[c].isna().sum()) for c in cols}
+
+    try:
+        if strategy == "value":
+            df[cols] = df[cols].fillna(req.value)
+        elif strategy in ("mean", "median"):
+            num = df[cols].select_dtypes(include="number").columns.tolist()
+            if not num:
+                raise HTTPException(status_code=400, detail="No numeric columns for mean/median")
+            if strategy == "mean":
+                fillmap = {c: df[c].mean() for c in num}
+            else:
+                fillmap = {c: df[c].median() for c in num}
+            for c, v in fillmap.items():
+                df[c] = df[c].fillna(v)
+        elif strategy == "mode":
+            for c in cols:
+                try:
+                    m = df[c].mode(dropna=True)
+                    if not m.empty:
+                        df[c] = df[c].fillna(m.iloc[0])
+                except Exception:
+                    # skip column if mode fails
+                    pass
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported strategy: {strategy}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Fillna failed: {e}")
+
+    after_nulls = {c: int(df[c].isna().sum()) for c in cols}
+    filled_total = int(sum(before_nulls[c] - after_nulls[c] for c in cols))
+
+    out_id = (req.out_id or str(uuid.uuid4())).strip() or str(uuid.uuid4())
+    out_path = _csv_path(out_id)
+    if os.path.exists(out_path):
+        raise HTTPException(status_code=409, detail=f"Output dataset already exists: {out_id}")
+
+    try:
+        _ensure_dirs()
+        df.to_csv(out_path, index=False)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save new dataset: {e}")
+
+    meta = _load_meta()
+    created_at = _now_iso()
+    dtypes = {c: str(t) for c, t in df.dtypes.items()}
+    meta["datasets"][out_id] = {
+        "id": out_id,
+        "filename": os.path.basename(out_path),
+        "original_name": f"derive:{dataset_id}",
+        "path": os.path.relpath(out_path, os.getcwd()),
+        "size_bytes": os.path.getsize(out_path),
+        "columns": list(df.columns),
+        "dtypes": dtypes,
+        "sampled_rows": min(50, len(df)),
+        "created_at": created_at,
+        "updated_at": created_at,
+    }
+    _save_meta(meta)
+
+    return {
+        "status": "ok",
+        "source_id": dataset_id,
+        "dataset_id": out_id,
+        "strategy": strategy,
+        "filled_total": filled_total,
+        "before_nulls": before_nulls,
+        "after_nulls": after_nulls,
+        "metadata": meta["datasets"][out_id],
+    }
+
+
+class DropColsRequest(BaseModel):
+    columns: List[str]
+    out_id: Optional[str] = None
+
+
+@router.post("/{dataset_id}/drop")
+def drop_columns(dataset_id: str, req: DropColsRequest) -> Dict[str, Any]:
+    path = _csv_path(dataset_id)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    try:
+        df = pd.read_csv(path)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
+
+    cols = [c for c in (req.columns or []) if c in df.columns]
+    if not cols:
+        raise HTTPException(status_code=400, detail="No valid columns to drop")
+
+    df2 = df.drop(columns=cols)
+
+    out_id = (req.out_id or str(uuid.uuid4())).strip() or str(uuid.uuid4())
+    out_path = _csv_path(out_id)
+    if os.path.exists(out_path):
+        raise HTTPException(status_code=409, detail=f"Output dataset already exists: {out_id}")
+    try:
+        _ensure_dirs()
+        df2.to_csv(out_path, index=False)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save new dataset: {e}")
+
+    meta = _load_meta()
+    created_at = _now_iso()
+    dtypes = {c: str(t) for c, t in df2.dtypes.items()}
+    meta["datasets"][out_id] = {
+        "id": out_id,
+        "filename": os.path.basename(out_path),
+        "original_name": f"derive:{dataset_id}",
+        "path": os.path.relpath(out_path, os.getcwd()),
+        "size_bytes": os.path.getsize(out_path),
+        "columns": list(df2.columns),
+        "dtypes": dtypes,
+        "sampled_rows": min(50, len(df2)),
+        "created_at": created_at,
+        "updated_at": created_at,
+    }
+    _save_meta(meta)
+
+    return {
+        "status": "ok",
+        "source_id": dataset_id,
+        "dataset_id": out_id,
+        "dropped": cols,
+        "metadata": meta["datasets"][out_id],
+    }
+
+
+class RenameRequest(BaseModel):
+    mapping: Dict[str, str]
+    out_id: Optional[str] = None
+
+
+@router.post("/{dataset_id}/rename")
+def rename_columns(dataset_id: str, req: RenameRequest) -> Dict[str, Any]:
+    path = _csv_path(dataset_id)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    try:
+        df = pd.read_csv(path)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
+
+    mapping = {k: v for k, v in (req.mapping or {}).items() if k in df.columns and v}
+    if not mapping:
+        raise HTTPException(status_code=400, detail="No valid rename mapping")
+    df2 = df.rename(columns=mapping)
+    # Validate no duplicate columns
+    if len(set(df2.columns)) != len(df2.columns):
+        raise HTTPException(status_code=400, detail="Duplicate column names after rename")
+
+    out_id = (req.out_id or str(uuid.uuid4())).strip() or str(uuid.uuid4())
+    out_path = _csv_path(out_id)
+    if os.path.exists(out_path):
+        raise HTTPException(status_code=409, detail=f"Output dataset already exists: {out_id}")
+    try:
+        _ensure_dirs()
+        df2.to_csv(out_path, index=False)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save new dataset: {e}")
+
+    meta = _load_meta()
+    created_at = _now_iso()
+    dtypes = {c: str(t) for c, t in df2.dtypes.items()}
+    meta["datasets"][out_id] = {
+        "id": out_id,
+        "filename": os.path.basename(out_path),
+        "original_name": f"derive:{dataset_id}",
+        "path": os.path.relpath(out_path, os.getcwd()),
+        "size_bytes": os.path.getsize(out_path),
+        "columns": list(df2.columns),
+        "dtypes": dtypes,
+        "sampled_rows": min(50, len(df2)),
+        "created_at": created_at,
+        "updated_at": created_at,
+    }
+    _save_meta(meta)
+
+    return {
+        "status": "ok",
+        "source_id": dataset_id,
+        "dataset_id": out_id,
+        "renamed": mapping,
+        "metadata": meta["datasets"][out_id],
+    }
+
+
 @router.get("/{dataset_id}/distribution")
 def distribution(
     dataset_id: str,

@@ -135,6 +135,45 @@
         </form>
         <div class="muted">주의: Query는 pandas query 문법을 사용합니다.</div>
       </section>
+
+      <section class="card">
+        <h2>10) 기초 전처리</h2>
+        <h3>결측치 채우기 (fillna)</h3>
+        <form id="fillna-form">
+          <label>Source ID: <input type="text" id="fillna-source" required /></label>
+          <label>Columns(옵션, 쉼표): <input type="text" id="fillna-cols" placeholder="미지정 시 전체" /></label>
+          <label>Strategy:
+            <select id="fillna-strategy">
+              <option value="value" selected>value</option>
+              <option value="mean">mean</option>
+              <option value="median">median</option>
+              <option value="mode">mode</option>
+            </select>
+          </label>
+          <label>Value(Strategy=value일 때): <input type="text" id="fillna-value" placeholder="예: 0 또는 'N/A'" /></label>
+          <label>Out ID(옵션): <input type="text" id="fillna-out" placeholder="자동 생성" /></label>
+          <button type="submit">실행</button>
+        </form>
+        <div id="fillna-result" class="muted"></div>
+
+        <h3>컬럼 삭제 (drop)</h3>
+        <form id="drop-form">
+          <label>Source ID: <input type="text" id="drop-source" required /></label>
+          <label>Columns(쉼표): <input type="text" id="drop-cols" required placeholder="예: col1,col2" /></label>
+          <label>Out ID(옵션): <input type="text" id="drop-out" placeholder="자동 생성" /></label>
+          <button type="submit">실행</button>
+        </form>
+        <div id="drop-result" class="muted"></div>
+
+        <h3>컬럼 이름 변경 (rename)</h3>
+        <form id="rename-form">
+          <label>Source ID: <input type="text" id="rename-source" required /></label>
+          <label>Mapping(쉼표, 콜론): <input type="text" id="rename-mapping" placeholder="old1:new1,old2:new2" required /></label>
+          <label>Out ID(옵션): <input type="text" id="rename-out" placeholder="자동 생성" /></label>
+          <button type="submit">실행</button>
+        </form>
+        <div id="rename-result" class="muted"></div>
+      </section>
     </main>
 
     <footer>
