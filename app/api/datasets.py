@@ -1190,6 +1190,9 @@ class SortRequest(BaseModel):
     limit: Optional[int] = Field(None, description="Keep only first N rows after sort")
     na_position: Optional[str] = Field("last", description="first|last")
     out_id: Optional[str] = None
+    chunked: Optional[bool] = Field(False, description="Enable external merge sort for large files")
+    chunksize: Optional[int] = Field(50000, description="Rows per run when chunked=true")
+    merge_batch: Optional[int] = Field(4, description="How many runs to merge per pass")
 
 
 @router.post("/{dataset_id}/sort")
@@ -1197,10 +1200,6 @@ def sort_dataset(dataset_id: str, req: SortRequest) -> Dict[str, Any]:
     path = _csv_path(dataset_id)
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Dataset not found")
-    try:
-        df = pd.read_csv(path)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
 
     cols: List[str] = []
     ascending: List[bool] = []
@@ -1213,47 +1212,136 @@ def sort_dataset(dataset_id: str, req: SortRequest) -> Dict[str, Any]:
         ascending.append(not desc)
     if not cols:
         raise HTTPException(status_code=400, detail="'by' must not be empty")
-    try:
-        out = df.sort_values(by=cols, ascending=ascending, na_position=req.na_position or "last")
-        if req.limit is not None and int(req.limit) >= 0:
-            out = out.head(int(req.limit))
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Sort failed: {e}")
 
     out_id = (req.out_id or str(uuid.uuid4())).strip() or str(uuid.uuid4())
     out_path = _csv_path(out_id)
     if os.path.exists(out_path):
         raise HTTPException(status_code=409, detail=f"Output dataset already exists: {out_id}")
-    try:
-        _ensure_dirs()
-        out.to_csv(out_path, index=False)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save new dataset: {e}")
+
+    if not req.chunked:
+        try:
+            df = pd.read_csv(path)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
+        try:
+            out_df = df.sort_values(by=cols, ascending=ascending, na_position=req.na_position or "last")
+            if req.limit is not None and int(req.limit) >= 0:
+                out_df = out_df.head(int(req.limit))
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Sort failed: {e}")
+        try:
+            _ensure_dirs()
+            out_df.to_csv(out_path, index=False)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to save new dataset: {e}")
+    else:
+        # External merge sort
+        job_id = str(uuid.uuid4())
+        tmp_dir = os.path.join(DATA_ROOT, "tmp", "sort", job_id)
+        os.makedirs(tmp_dir, exist_ok=True)
+        run_paths: List[str] = []
+        chunksize = max(1000, int(req.chunksize or 50000))
+        try:
+            # Phase 1: create sorted runs
+            idx = 0
+            for chunk in pd.read_csv(path, chunksize=chunksize):
+                miss = [c for c in cols if c not in chunk.columns]
+                if miss:
+                    raise HTTPException(status_code=404, detail=f"Columns not found: {', '.join(miss)}")
+                chunk_sorted = chunk.sort_values(by=cols, ascending=ascending, na_position=req.na_position or "last")
+                rpath = os.path.join(tmp_dir, f"run_{idx}.csv")
+                chunk_sorted.to_csv(rpath, index=False)
+                run_paths.append(rpath)
+                idx += 1
+            # Phase 2: iterative merge runs
+            if not run_paths:
+                _ensure_dirs()
+                # No rows
+                pd.DataFrame().to_csv(out_path, index=False)
+            else:
+                batch = max(2, int(req.merge_batch or 4))
+                runs = run_paths
+                stage = 0
+                while len(runs) > 1:
+                    new_runs: List[str] = []
+                    for i in range(0, len(runs), batch):
+                        group = runs[i:i+batch]
+                        dfs = [pd.read_csv(p) for p in group]
+                        merged = pd.concat(dfs, ignore_index=True)
+                        merged = merged.sort_values(by=cols, ascending=ascending, na_position=req.na_position or "last")
+                        mpath = os.path.join(tmp_dir, f"merge_{stage}_{i//batch}.csv")
+                        merged.to_csv(mpath, index=False)
+                        new_runs.append(mpath)
+                    # remove old runs
+                    for p in runs:
+                        try:
+                            os.remove(p)
+                        except Exception:
+                            pass
+                    runs = new_runs
+                    stage += 1
+                final_run = runs[0]
+                if req.limit is not None and int(req.limit) >= 0:
+                    lim = int(req.limit)
+                    head_df = pd.read_csv(final_run, nrows=max(0, lim))
+                    _ensure_dirs()
+                    head_df.to_csv(out_path, index=False)
+                else:
+                    _ensure_dirs()
+                    os.replace(final_run, out_path)
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Chunked sort failed: {e}")
+        finally:
+            try:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+            except Exception:
+                pass
 
     meta = _load_meta()
     created_at = _now_iso()
-    dtypes = {c: str(t) for c, t in out.dtypes.items()}
+    try:
+        probe = pd.read_csv(out_path, nrows=50)
+        dtypes = {c: str(t) for c, t in probe.dtypes.items()}
+        columns = list(probe.columns)
+        sampled_rows = len(probe)
+    except Exception:
+        dtypes = {}
+        columns = []
+        sampled_rows = 0
     meta["datasets"][out_id] = {
         "id": out_id,
         "filename": os.path.basename(out_path),
         "original_name": f"derive:{dataset_id}",
         "path": os.path.relpath(out_path, os.getcwd()),
         "size_bytes": os.path.getsize(out_path),
-        "columns": list(out.columns),
+        "columns": columns,
         "dtypes": dtypes,
-        "sampled_rows": min(50, len(out)),
+        "sampled_rows": sampled_rows,
         "created_at": created_at,
         "updated_at": created_at,
     }
     _save_meta(meta)
 
-    return {"status": "ok", "source_id": dataset_id, "dataset_id": out_id, "rows": int(len(out)), "metadata": meta["datasets"][out_id]}
+    rows_out: Optional[int] = None
+    try:
+        if req.limit is not None and int(req.limit) >= 0:
+            rows_out = int(req.limit)
+        else:
+            with open(out_path, "rb") as f:
+                rows_out = sum(1 for _ in f) - 1
+    except Exception:
+        pass
+    return {"status": "ok", "source_id": dataset_id, "dataset_id": out_id, "rows": rows_out, "metadata": meta["datasets"][out_id]}
 
 
 class DedupRequest(BaseModel):
     subset: Optional[List[str]] = Field(None, description="Columns to consider; default all")
     keep: str = Field("first", description="first|last|none (drop all duplicates)")
     out_id: Optional[str] = None
+    chunked: Optional[bool] = Field(False, description="Enable streaming dedup for large files (keep=first or none)")
+    chunksize: Optional[int] = Field(50000, description="Rows per chunk when chunked=true")
 
 
 @router.post("/{dataset_id}/dedup")
@@ -1261,53 +1349,122 @@ def deduplicate(dataset_id: str, req: DedupRequest) -> Dict[str, Any]:
     path = _csv_path(dataset_id)
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Dataset not found")
-    try:
-        df = pd.read_csv(path)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
-
-    keep_val: Any
     k = (req.keep or "first").lower()
-    if k in {"none", "false", "drop"}:
-        keep_val = False
-    elif k in {"first", "last"}:
-        keep_val = k
-    else:
-        raise HTTPException(status_code=400, detail=f"Unsupported keep: {req.keep}")
-
-    try:
-        out = df.drop_duplicates(subset=req.subset, keep=keep_val)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Dedup failed: {e}")
-
     out_id = (req.out_id or str(uuid.uuid4())).strip() or str(uuid.uuid4())
     out_path = _csv_path(out_id)
     if os.path.exists(out_path):
         raise HTTPException(status_code=409, detail=f"Output dataset already exists: {out_id}")
-    try:
-        _ensure_dirs()
-        out.to_csv(out_path, index=False)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save new dataset: {e}")
+
+    if not req.chunked:
+        try:
+            df = pd.read_csv(path)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
+        keep_val: Any
+        if k in {"none", "false", "drop"}:
+            keep_val = False
+        elif k in {"first", "last"}:
+            keep_val = k
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported keep: {req.keep}")
+        try:
+            out_df = df.drop_duplicates(subset=req.subset, keep=keep_val)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Dedup failed: {e}")
+        try:
+            _ensure_dirs()
+            out_df.to_csv(out_path, index=False)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to save new dataset: {e}")
+    else:
+        # Streaming dedup
+        if k == "last":
+            raise HTTPException(status_code=400, detail="chunked dedup does not support keep=last (use non-chunked mode)")
+        chunksize = max(1000, int(req.chunksize or 50000))
+        subset_cols: Optional[List[str]]
+        # We will infer columns from header
+        try:
+            head_df = pd.read_csv(path, nrows=1)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
+        all_columns = list(head_df.columns)
+        subset_cols = req.subset or all_columns
+
+        def key_tuple(row: pd.Series) -> tuple:
+            return tuple((None if pd.isna(row[c]) else row[c]) for c in subset_cols)  # type: ignore[index]
+
+        tmp_path = out_path + ".tmp"
+        os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
+        if k in {"first", "true"}:
+            seen = set()
+            # Write header first
+            with open(tmp_path, "w", encoding="utf-8", newline="") as f_out:
+                # Build CSV header
+                f_out.write(",".join([str(c) for c in all_columns]) + "\n")
+            for chunk in pd.read_csv(path, chunksize=chunksize):
+                # keep only first occurrence
+                keep_mask = []
+                for _, row in chunk.iterrows():
+                    ktuple = key_tuple(row)
+                    if ktuple in seen:
+                        keep_mask.append(False)
+                    else:
+                        seen.add(ktuple)
+                        keep_mask.append(True)
+                kept = chunk.loc[keep_mask]
+                kept.to_csv(tmp_path, mode="a", index=False, header=False)
+        elif k in {"none", "false", "drop"}:
+            # Two-pass: count keys
+            counts: Dict[tuple, int] = {}
+            for chunk in pd.read_csv(path, chunksize=chunksize):
+                for _, row in chunk.iterrows():
+                    ktuple = key_tuple(row)
+                    counts[ktuple] = counts.get(ktuple, 0) + 1
+            # Second pass write rows with count==1
+            with open(tmp_path, "w", encoding="utf-8", newline="") as f_out:
+                f_out.write(",".join([str(c) for c in all_columns]) + "\n")
+            for chunk in pd.read_csv(path, chunksize=chunksize):
+                mask = []
+                for _, row in chunk.iterrows():
+                    ktuple = key_tuple(row)
+                    mask.append(counts.get(ktuple, 0) == 1)
+                kept = chunk.loc[mask]
+                kept.to_csv(tmp_path, mode="a", index=False, header=False)
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported keep: {req.keep}")
+        # Move tmp to final
+        os.replace(tmp_path, out_path)
 
     meta = _load_meta()
     created_at = _now_iso()
-    dtypes = {c: str(t) for c, t in out.dtypes.items()}
+    try:
+        probe = pd.read_csv(out_path, nrows=50)
+        dtypes = {c: str(t) for c, t in probe.dtypes.items()}
+        columns = list(probe.columns)
+        sampled_rows = len(probe)
+        # Count rows quickly if possible
+        with open(out_path, "rb") as f:
+            rows_out = sum(1 for _ in f) - 1
+    except Exception:
+        dtypes = {}
+        columns = []
+        sampled_rows = 0
+        rows_out = None  # type: ignore[assignment]
     meta["datasets"][out_id] = {
         "id": out_id,
         "filename": os.path.basename(out_path),
         "original_name": f"derive:{dataset_id}",
         "path": os.path.relpath(out_path, os.getcwd()),
         "size_bytes": os.path.getsize(out_path),
-        "columns": list(out.columns),
+        "columns": columns,
         "dtypes": dtypes,
-        "sampled_rows": min(50, len(out)),
+        "sampled_rows": sampled_rows,
         "created_at": created_at,
         "updated_at": created_at,
     }
     _save_meta(meta)
 
-    return {"status": "ok", "source_id": dataset_id, "dataset_id": out_id, "rows": int(len(out)), "metadata": meta["datasets"][out_id]}
+    return {"status": "ok", "source_id": dataset_id, "dataset_id": out_id, "rows": rows_out, "metadata": meta["datasets"][out_id]}
 
 
 @router.get("/{dataset_id}/profile")

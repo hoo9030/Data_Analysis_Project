@@ -17,10 +17,12 @@ Extended APIs for Data Analysis Studio
 - POST `/api/datasets/{id}/sort`
   - Body: `{ "by": ["-col1","col2"], "limit": 100, "out_id": "(optional)" }`
   - Sorts by columns (prefix `-` means descending) and optionally limits rows.
+  - Options: `chunked: true`, `chunksize: 50000`, `merge_batch: 4` for external merge sort.
 
 - POST `/api/datasets/{id}/dedup`
   - Body: `{ "subset": ["col1"], "keep": "first|last|none", "out_id": "(optional)" }`
   - Drops duplicate rows.
+  - Options: `chunked: true`, `chunksize: 50000` (supports `keep=first` or `keep=none`).
 
 - GET `/api/datasets/{id}/profile?sample=10000`
   - Per-column profile: dtype, non_null, nulls, distinct, top value/count, numeric stats.

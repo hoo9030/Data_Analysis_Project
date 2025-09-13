@@ -725,12 +725,17 @@
       const source = $('#sort-source').value.trim();
       const by = $('#sort-by').value.split(',').map(s => s.trim()).filter(Boolean);
       const limit = Number($('#sort-limit').value || 0);
+      const chunked = $('#sort-chunked').checked;
+      const chunksizeStr = $('#sort-chunksize').value.trim();
+      const batchStr = $('#sort-batch').value.trim();
       const out = $('#sort-out').value.trim();
       const result = $('#sort-result');
       result.textContent = '실행 중...';
       if (!source || !by.length) { result.textContent = 'Source/By 필요'; return; }
-      const body = { by };
+      const body = { by, chunked };
       if (limit >= 0) body.limit = limit;
+      if (chunked && chunksizeStr) body.chunksize = Number(chunksizeStr);
+      if (chunked && batchStr) body.merge_batch = Number(batchStr);
       if (out) body.out_id = out;
       try {
         const data = await fetchJSON(`${apiBase}/datasets/${encodeURIComponent(source)}/sort`, {
@@ -760,12 +765,15 @@
       const source = $('#dedup-source').value.trim();
       const subsetStr = $('#dedup-subset').value.trim();
       const keep = $('#dedup-keep').value;
+      const chunked = $('#dedup-chunked').checked;
+      const chunksizeStr = $('#dedup-chunksize').value.trim();
       const out = $('#dedup-out').value.trim();
       const result = $('#dedup-result');
       result.textContent = '실행 중...';
       if (!source) { result.textContent = 'Source 필요'; return; }
-      const body = { keep };
+      const body = { keep, chunked };
       if (subsetStr) body.subset = subsetStr.split(',').map(s => s.trim()).filter(Boolean);
+      if (chunked && chunksizeStr) body.chunksize = Number(chunksizeStr);
       if (out) body.out_id = out;
       try {
         const data = await fetchJSON(`${apiBase}/datasets/${encodeURIComponent(source)}/dedup`, {
