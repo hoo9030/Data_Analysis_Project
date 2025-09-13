@@ -1,0 +1,622 @@
+﻿(() => {
+  const apiBase = `${window.location.origin}/api`;
+
+  function $(sel) { return document.querySelector(sel); }
+  function el(tag, attrs = {}, ...children) {
+    const e = document.createElement(tag);
+    Object.entries(attrs || {}).forEach(([k, v]) => {
+      if (k === 'class') e.className = v; else if (k === 'html') e.innerHTML = v; else e.setAttribute(k, v);
+    });
+    children.flat().forEach(c => e.appendChild(typeof c === 'string' ? document.createTextNode(c) : c));
+    return e;
+  }
+
+  function renderTable(columns, rows) {
+    const table = el('table', { class: 'table' });
+    const thead = el('thead');
+    const trh = el('tr');
+    columns.forEach(c => trh.appendChild(el('th', {}, c)));
+    thead.appendChild(trh);
+    const tbody = el('tbody');
+    rows.forEach(r => {
+      const tr = el('tr');
+      columns.forEach(c => tr.appendChild(el('td', {}, r[c] !== undefined ? String(r[c]) : '')));
+      tbody.appendChild(tr);
+    });
+    table.appendChild(thead);
+    table.appendChild(tbody);
+    return table;
+  }
+
+  function renderMatrix(obj) {
+    // obj: { rowName: { col: value } }
+    const cols = new Set();
+    Object.values(obj).forEach(r => Object.keys(r || {}).forEach(k => cols.add(k)));
+    const columns = ['metric', ...Array.from(cols)];
+    const rows = Object.entries(obj).map(([name, r]) => ({ metric: name, ...r }));
+    return renderTable(columns, rows);
+  }
+
+  function renderBars(items, labelKey, countKey) {
+    const max = items.reduce((m, x) => Math.max(m, Number(x[countKey] || 0)), 0) || 1;
+    const table = el('table', { class: 'table' });
+    const thead = el('thead');
+    thead.appendChild(el('tr', {}, el('th', {}, 'label'), el('th', {}, 'count'), el('th', {}, 'chart')));
+    table.appendChild(thead);
+    const tbody = el('tbody');
+    items.forEach(it => {
+      const label = String(it[labelKey] ?? '');
+      const cnt = Number(it[countKey] || 0);
+      const w = Math.max(2, Math.round(cnt / max * 100));
+      const bar = el('div', { class: 'bar', style: `width:${w}%` });
+      const tr = el('tr', {}, el('td', {}, label), el('td', {}, String(cnt)), el('td', {}, bar));
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    return table;
+  }
+
+  function createCanvas(container, width, height) {
+    // Clear container
+    container.innerHTML = '';
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(320, width);
+    canvas.height = Math.max(120, height);
+    container.appendChild(canvas);
+    return canvas;
+  }
+
+  function pick(container, fallback) {
+    const w = container.getBoundingClientRect().width;
+    return Math.max(320, Math.floor(w || fallback));
+  }
+
+  function drawBarChart(container, items, labelKey, countKey) {
+    const W = pick(container, 800);
+    const H = 300;
+    const pad = { left: 48, right: 16, top: 16, bottom: 80 };
+    const canvas = createCanvas(container, W, H);
+    const ctx = canvas.getContext('2d');
+    const labels = items.map(d => String(d[labelKey] ?? ''));
+    const values = items.map(d => Number(d[countKey] || 0));
+    const n = Math.max(1, values.length);
+    const maxV = Math.max(1, Math.max(...values));
+    const innerW = W - pad.left - pad.right;
+    const innerH = H - pad.top - pad.bottom;
+    const barW = Math.max(4, Math.floor(innerW / n * 0.8));
+    const gap = Math.max(2, Math.floor(innerW / n * 0.2));
+
+    // Axes
+    ctx.fillStyle = '#9aa4b2';
+    ctx.font = '12px system-ui';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    // Y axis ticks (0, 50%, 100%)
+    [0, 0.5, 1].forEach(fr => {
+      const y = pad.top + innerH - fr * innerH;
+      const v = Math.round(fr * maxV);
+      ctx.fillText(String(v), pad.left - 6, y);
+      ctx.strokeStyle = '#263040';
+      ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+    });
+
+    // Bars
+    let x = pad.left + (innerW - (barW + gap) * n + gap) / 2;
+    ctx.fillStyle = '#2f81f7';
+    for (let i = 0; i < n; i++) {
+      const h = Math.round(values[i] / maxV * innerH);
+      const y = pad.top + innerH - h;
+      ctx.fillRect(x, y, barW, h);
+      x += barW + gap;
+    }
+
+    // X labels (rotate if many)
+    ctx.save();
+    ctx.translate(0, 0);
+    ctx.fillStyle = '#e6edf3';
+    const rotate = n > 16;
+    ctx.textAlign = rotate ? 'right' : 'center';
+    ctx.textBaseline = rotate ? 'middle' : 'top';
+    x = pad.left + (innerW - (barW + gap) * n + gap) / 2;
+    for (let i = 0; i < n; i++) {
+      const lx = x + barW / 2;
+      const ly = pad.top + innerH + 6;
+      if (rotate) {
+        ctx.save();
+        ctx.translate(lx, ly + 30);
+        ctx.rotate(-Math.PI / 4);
+        ctx.fillText(labels[i], 0, 0);
+        ctx.restore();
+      } else {
+        ctx.fillText(labels[i], lx, ly);
+      }
+      x += barW + gap;
+    }
+    ctx.restore();
+  }
+
+  function colorForCorr(v) {
+    // Map [-1,1] -> blue-white-red
+    if (v === null || v === undefined) return '#222';
+    const x = Math.max(-1, Math.min(1, Number(v)));
+    if (x >= 0) {
+      const r = 255;
+      const g = Math.round(255 * (1 - x * 0.6));
+      const b = Math.round(255 * (1 - x));
+      return `rgb(${r},${g},${b})`;
+    } else {
+      const t = Math.abs(x);
+      const r = Math.round(255 * (1 - t));
+      const g = Math.round(255 * (1 - t * 0.6));
+      const b = 255;
+      return `rgb(${r},${g},${b})`;
+    }
+  }
+
+  function drawHeatmap(container, columns, matrix) {
+    const n = columns.length;
+    const cell = Math.max(16, Math.min(42, Math.floor(pick(container, 800) / Math.max(8, n))));
+    const pad = { left: 120, top: 24, right: 16, bottom: 120 };
+    const W = pad.left + pad.right + n * cell;
+    const H = pad.top + pad.bottom + n * cell;
+    const canvas = createCanvas(container, W, H);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#0b0f14';
+    ctx.fillRect(0, 0, W, H);
+
+    // Cells
+    for (let r = 0; r < n; r++) {
+      for (let c = 0; c < n; c++) {
+        const v = (matrix[columns[r]] || {})[columns[c]];
+        ctx.fillStyle = colorForCorr(v);
+        ctx.fillRect(pad.left + c * cell, pad.top + r * cell, cell, cell);
+      }
+    }
+    // Grid
+    ctx.strokeStyle = '#263040';
+    for (let i = 0; i <= n; i++) {
+      const y = pad.top + i * cell;
+      ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + n * cell, y); ctx.stroke();
+      const x = pad.left + i * cell;
+      ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, pad.top + n * cell); ctx.stroke();
+    }
+    // Labels
+    ctx.fillStyle = '#e6edf3';
+    ctx.font = '12px system-ui';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (let r = 0; r < n; r++) {
+      const y = pad.top + r * cell + cell / 2;
+      ctx.fillText(columns[r], pad.left - 8, y);
+    }
+    ctx.save();
+    ctx.translate(pad.left, pad.top + n * cell + 8);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (let c = 0; c < n; c++) {
+      const x = c * cell + cell / 2;
+      ctx.fillText(columns[c], x, -8);
+    }
+    ctx.restore();
+
+    // Legend
+    const legend = document.createElement('div');
+    legend.className = 'legend';
+    legend.innerHTML = '<span>-1</span><div class="legend-bar"></div><span>+1</span>';
+    container.appendChild(legend);
+  }
+
+  async function fetchJSON(url, opts) {
+    const res = await fetch(url, opts);
+    const text = await res.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+    if (!res.ok) throw new Error((data && (data.detail || data.message)) || res.statusText);
+    return data;
+  }
+
+  async function loadInfo() {
+    try {
+      const info = await fetchJSON(`${apiBase}/info`);
+      $('#app-info').textContent = `${info.name} v${info.version}`;
+    } catch (e) {
+      $('#app-info').textContent = '?쒕쾭 ?뺣낫 遺덈윭?ㅺ린 ?ㅽ뙣';
+    }
+  }
+
+  function renderDatasetList(items) {
+    const table = el('table', { class: 'table' });
+    const thead = el('thead');
+    const trh = el('tr');
+    ['id','original_name','size_bytes','created_at','actions'].forEach(c => trh.appendChild(el('th', {}, c)));
+    thead.appendChild(trh);
+    const tbody = el('tbody');
+    (items || []).forEach(x => {
+      const tr = el('tr', { 'data-id': x.id });
+      tr.appendChild(el('td', {}, x.id));
+      tr.appendChild(el('td', {}, x.original_name));
+      tr.appendChild(el('td', {}, String(x.size_bytes)));
+      tr.appendChild(el('td', {}, x.created_at));
+      const actions = el('td');
+      actions.append(
+        el('button', { class: 'btn-action', 'data-act': 'preview', title: '誘몃━蹂닿린' }, 'Preview'), ' ',
+        el('button', { class: 'btn-action', 'data-act': 'describe', title: '?붿빟' }, 'Describe'), ' ',
+        el('a', { href: `${apiBase}/datasets/${encodeURIComponent(x.id)}/download`, target: '_blank' }, 'Download'), ' ',
+        el('button', { class: 'btn-danger', 'data-act': 'delete', title: '??젣' }, 'Delete')
+      );
+      tr.appendChild(actions);
+      tbody.appendChild(tr);
+    });
+    table.appendChild(thead);
+    table.appendChild(tbody);
+    return table;
+  }
+
+  async function refreshList() {
+    const container = $('#datasets-list');
+    container.innerHTML = '';
+    try {
+      const data = await fetchJSON(`${apiBase}/datasets`);
+      const items = (data.items || []);
+      container.appendChild(renderDatasetList(items));
+      // Autofill last id to preview/describe inputs
+      if (items.length) {
+        const lastId = items[0].id;
+        $('#preview-id').value = lastId;
+        $('#describe-id').value = lastId;
+      }
+    } catch (e) {
+      container.textContent = `紐⑸줉 遺덈윭?ㅺ린 ?ㅽ뙣: ${e.message}`;
+    }
+  }
+
+  function bindUpload() {
+    $('#upload-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const file = $('#csv-file').files[0];
+      if (!file) return;
+      const dsid = $('#dataset-id').value.trim();
+      const form = new FormData();
+      form.append('file', file);
+      if (dsid) form.append('dataset_id', dsid);
+      $('#upload-result').textContent = '?낅줈??以?..';
+      try {
+        const res = await fetchJSON(`${apiBase}/datasets`, { method: 'POST', body: form });
+        $('#upload-result').textContent = `?낅줈???꾨즺: ${res.dataset_id}`;
+        await refreshList();
+      } catch (e) {
+        $('#upload-result').textContent = `?낅줈???ㅽ뙣: ${e.message}`;
+      }
+    });
+  }
+
+  function bindPreview() {
+    $('#preview-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const id = $('#preview-id').value.trim();
+      const n = Number($('#preview-n').value || 20);
+      const container = $('#preview-table');
+      container.innerHTML = '';
+      if (!id) { container.textContent = 'Dataset ID瑜??낅젰?섏꽭??; return; }
+      try {
+        const data = await fetchJSON(`${apiBase}/datasets/${encodeURIComponent(id)}/preview?nrows=${n}`);
+        container.appendChild(renderTable(data.columns, data.rows));
+      } catch (e) {
+        container.textContent = `誘몃━蹂닿린 ?ㅽ뙣: ${e.message}`;
+      }
+    });
+  }
+
+  function bindDescribe() {
+    $('#describe-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const id = $('#describe-id').value.trim();
+      const limit = Number($('#describe-limit').value || 5000);
+      const all = $('#describe-all').checked;
+      const container = $('#describe-table');
+      container.innerHTML = '';
+      if (!id) { container.textContent = 'Dataset ID瑜??낅젰?섏꽭??; return; }
+      try {
+        const data = await fetchJSON(`${apiBase}/datasets/${encodeURIComponent(id)}/describe?limit=${limit}&include_all=${all}`);
+        container.appendChild(renderMatrix(data.stats));
+      } catch (e) {
+        container.textContent = `?붿빟 ?ㅽ뙣: ${e.message}`;
+      }
+    });
+  }
+
+  function bindToolbar() {
+    $('#refresh-list').addEventListener('click', refreshList);
+    // Delegate actions on dataset rows
+    $('#datasets-list').addEventListener('click', async (ev) => {
+      const t = ev.target;
+      if (!(t instanceof HTMLElement)) return;
+      const act = t.getAttribute('data-act');
+      if (!act) return;
+      const tr = t.closest('tr');
+      const id = tr?.getAttribute('data-id');
+      if (!id) return;
+      if (act === 'preview') {
+        $('#preview-id').value = id;
+        document.getElementById('preview-form').scrollIntoView({ behavior: 'smooth' });
+      } else if (act === 'describe') {
+        $('#describe-id').value = id;
+        document.getElementById('describe-form').scrollIntoView({ behavior: 'smooth' });
+      } else if (act === 'delete') {
+        if (!confirm(`?뺣쭚 ??젣?좉퉴??\n${id}`)) return;
+        try {
+          await fetchJSON(`${apiBase}/datasets/${encodeURIComponent(id)}`, { method: 'DELETE' });
+          await refreshList();
+        } catch (e) {
+          alert(`??젣 ?ㅽ뙣: ${e.message}`);
+        }
+      }
+    });
+  }
+
+  function bindNulls() {
+    $('#nulls-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const id = $('#nulls-id').value.trim();
+      const limitStr = $('#nulls-limit').value.trim();
+      const limit = limitStr ? Number(limitStr) : null;
+      const container = $('#nulls-table');
+      container.innerHTML = '';
+      if (!id) { container.textContent = 'Dataset ID瑜??낅젰?섏꽭??; return; }
+      const url = new URL(`${apiBase}/datasets/${encodeURIComponent(id)}/nulls`);
+      if (limit) url.searchParams.set('limit', String(limit));
+      try {
+        const data = await fetchJSON(url.toString());
+        const cols = ['column','total_rows','nulls','null_pct'];
+        container.appendChild(renderTable(cols, data.items || []));
+      } catch (e) {
+        container.textContent = `寃곗륫移?議고쉶 ?ㅽ뙣: ${e.message}`;
+      }
+    });
+  }
+
+  function bindCast() {
+    $('#cast-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const source = $('#cast-source').value.trim();
+      const column = $('#cast-column').value.trim();
+      const to = $('#cast-type').value;
+      const out = $('#cast-out').value.trim();
+      const strict = $('#cast-strict').checked;
+      const result = $('#cast-result');
+      result.textContent = '蹂??以?..';
+      if (!source || !column) { result.textContent = 'Source/Column???낅젰?섏꽭??; return; }
+      try {
+        const body = { column, to, mode: strict ? 'strict' : 'coerce' };
+        if (out) body.out_id = out;
+        const data = await fetchJSON(`${apiBase}/datasets/${encodeURIComponent(source)}/cast`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        result.textContent = `?꾨즺: ${data.dataset_id} (before_nulls=${data.before_nulls}, after_nulls=${data.after_nulls}, new_nulls=${data.coerced_new_nulls})`;
+        // Refresh list to show the new dataset
+        await refreshList();
+        // Autofill ids for convenience
+        $('#preview-id').value = data.dataset_id;
+        $('#describe-id').value = data.dataset_id;
+        $('#nulls-id').value = data.dataset_id;
+        $('#cast-source').value = data.dataset_id;
+      } catch (e) {
+        result.textContent = `蹂???ㅽ뙣: ${e.message}`;
+      }
+    });
+  }
+
+  function bindDistribution() {
+    $('#dist-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const id = $('#dist-id').value.trim();
+      const col = $('#dist-col').value.trim();
+      const bins = Number($('#dist-bins').value || 20);
+      const topk = Number($('#dist-topk').value || 20);
+      const dropna = $('#dist-dropna').checked;
+      const container = $('#dist-view');
+      const chart = $('#dist-chart');
+      container.innerHTML = '';
+      chart.innerHTML = '';
+      if (!id || !col) { container.textContent = 'Dataset/Column???낅젰?섏꽭??; return; }
+      const url = new URL(`${apiBase}/datasets/${encodeURIComponent(id)}/distribution`);
+      url.searchParams.set('column', col);
+      url.searchParams.set('bins', String(bins));
+      url.searchParams.set('topk', String(topk));
+      url.searchParams.set('dropna', String(dropna));
+      try {
+        const data = await fetchJSON(url.toString());
+        if (data.type === 'numeric') {
+          container.appendChild(el('div', { class: 'muted' }, `min=${data.min}, max=${data.max}, bins=${data.bins}, total=${data.total}, na=${data.na_count}`));
+          const items = (data.items || []).map(x => ({ label: x.label || `${x.left}~${x.right}`, count: x.count }));
+          drawBarChart(chart, items, 'label', 'count');
+          container.appendChild(renderBars(items, 'label', 'count'));
+        } else {
+          container.appendChild(el('div', { class: 'muted' }, `topk=${data.topk}, total=${data.total}, na=${data.na_count}, unique=${data.unique}`));
+          drawBarChart(chart, (data.items || []).map(x => ({ label: String(x.value ?? ''), count: x.count })), 'label', 'count');
+          container.appendChild(renderBars(data.items || [], 'value', 'count'));
+        }
+      } catch (e) {
+        container.textContent = `遺꾪룷 怨꾩궛 ?ㅽ뙣: ${e.message}`;
+      }
+    });
+  }
+
+  function bindCorrelation() {
+    $('#corr-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const id = $('#corr-id').value.trim();
+      const method = $('#corr-method').value;
+      const limit = Number($('#corr-limit').value || 50000);
+      const container = $('#corr-view');
+      const chart = $('#corr-chart');
+      container.innerHTML = '';
+      chart.innerHTML = '';
+      if (!id) { container.textContent = 'Dataset ID瑜??낅젰?섏꽭??; return; }
+      const url = new URL(`${apiBase}/datasets/${encodeURIComponent(id)}/corr`);
+      url.searchParams.set('method', method);
+      if (limit) url.searchParams.set('limit', String(limit));
+      try {
+        const data = await fetchJSON(url.toString());
+        if ((data.columns || []).length) {
+          drawHeatmap(chart, data.columns, data.matrix || {});
+        }
+        container.appendChild(renderMatrix(data.matrix || {}));
+      } catch (e) {
+        container.textContent = `?곴?遺꾩꽍 ?ㅽ뙣: ${e.message}`;
+      }
+    });
+  }
+
+  function bindSampleFilter() {
+    $('#sample-form').addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const id = $('#sample-id').value.trim();
+      const rows = Number($('#sample-rows').value || 100);
+      if (!id) return;
+      const url = new URL(`${apiBase}/datasets/${encodeURIComponent(id)}/sample.csv`);
+      url.searchParams.set('rows', String(rows));
+      window.open(url.toString(), '_blank');
+    });
+
+    $('#filter-form').addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const id = $('#filter-id').value.trim();
+      const cols = $('#filter-cols').value.trim();
+      const limit = Number($('#filter-limit').value || 10000);
+      const query = $('#filter-query').value.trim();
+      if (!id) return;
+      const url = new URL(`${apiBase}/datasets/${encodeURIComponent(id)}/filter.csv`);
+      if (cols) url.searchParams.set('columns', cols);
+      if (limit >= 0) url.searchParams.set('limit', String(limit));
+      if (query) url.searchParams.set('query', query);
+      window.open(url.toString(), '_blank');
+    });
+  }
+
+  function bindPreprocess() {
+    // fillna
+    $('#fillna-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const source = $('#fillna-source').value.trim();
+      const cols = $('#fillna-cols').value.trim();
+      const strategy = $('#fillna-strategy').value;
+      const value = $('#fillna-value').value;
+      const out = $('#fillna-out').value.trim();
+      const result = $('#fillna-result');
+      result.textContent = '?ㅽ뻾 以?..';
+      if (!source) { result.textContent = 'Source ID瑜??낅젰?섏꽭??; return; }
+      const body = { strategy };
+      if (cols) body.columns = cols.split(',').map(s => s.trim()).filter(Boolean);
+      if (strategy === 'value') body.value = value;
+      if (out) body.out_id = out;
+      try {
+        const data = await fetchJSON(`${apiBase}/datasets/${encodeURIComponent(source)}/fillna`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        });
+        result.textContent = `?꾨즺: ${data.dataset_id} (filled_total=${data.filled_total})`;
+        await refreshList();
+        $('#preview-id').value = data.dataset_id;
+        $('#describe-id').value = data.dataset_id;
+        $('#nulls-id').value = data.dataset_id;
+        $('#cast-source').value = data.dataset_id;
+        $('#fillna-source').value = data.dataset_id;
+        $('#drop-source').value = data.dataset_id;
+        $('#rename-source').value = data.dataset_id;
+      } catch (e) {
+        result.textContent = `?ㅽ뙣: ${e.message}`;
+      }
+    });
+
+    // drop
+    $('#drop-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const source = $('#drop-source').value.trim();
+      const cols = $('#drop-cols').value.trim();
+      const out = $('#drop-out').value.trim();
+      const result = $('#drop-result');
+      result.textContent = '?ㅽ뻾 以?..';
+      if (!source || !cols) { result.textContent = 'Source/Columns ?낅젰'; return; }
+      const body = { columns: cols.split(',').map(s => s.trim()).filter(Boolean) };
+      if (out) body.out_id = out;
+      try {
+        const data = await fetchJSON(`${apiBase}/datasets/${encodeURIComponent(source)}/drop`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        });
+        result.textContent = `?꾨즺: ${data.dataset_id} (dropped=${(data.dropped||[]).join(',')})`;
+        await refreshList();
+        $('#preview-id').value = data.dataset_id;
+        $('#describe-id').value = data.dataset_id;
+        $('#nulls-id').value = data.dataset_id;
+        $('#cast-source').value = data.dataset_id;
+        $('#fillna-source').value = data.dataset_id;
+        $('#drop-source').value = data.dataset_id;
+        $('#rename-source').value = data.dataset_id;
+      } catch (e) {
+        result.textContent = `?ㅽ뙣: ${e.message}`;
+      }
+    });
+
+    // rename
+    $('#rename-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const source = $('#rename-source').value.trim();
+      const mappingStr = $('#rename-mapping').value.trim();
+      const out = $('#rename-out').value.trim();
+      const result = $('#rename-result');
+      result.textContent = '?ㅽ뻾 以?..';
+      if (!source || !mappingStr) { result.textContent = 'Source/Mapping ?낅젰'; return; }
+      const mapping = {};
+      mappingStr.split(',').map(x => x.trim()).filter(Boolean).forEach(pair => {
+        const [k, v] = pair.split(':');
+        if (k && v) mapping[k.trim()] = v.trim();
+      });
+      const body = { mapping };
+      if (out) body.out_id = out;
+      try {
+        const data = await fetchJSON(`${apiBase}/datasets/${encodeURIComponent(source)}/rename`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        });
+        result.textContent = `?꾨즺: ${data.dataset_id}`;
+        await refreshList();
+        $('#preview-id').value = data.dataset_id;
+        $('#describe-id').value = data.dataset_id;
+        $('#nulls-id').value = data.dataset_id;
+        $('#cast-source').value = data.dataset_id;
+        $('#fillna-source').value = data.dataset_id;
+        $('#drop-source').value = data.dataset_id;
+        $('#rename-source').value = data.dataset_id;
+      } catch (e) {
+        result.textContent = `?ㅽ뙣: ${e.message}`;
+      }
+    });
+  }
+
+  window.addEventListener('DOMContentLoaded', async () => {
+    bindUpload();
+    bindPreview();
+    bindDescribe();
+    bindToolbar();
+    bindNulls();
+    bindCast();
+    bindDistribution();
+    bindCorrelation();
+    bindSampleFilter();
+    bindPreprocess();
+    await loadInfo();
+    await refreshList();
+    // Autofill IDs to new sections when list refresh set preview/describe IDs
+    const syncIds = () => {
+      $('#dist-id').value = $('#preview-id').value;
+      $('#corr-id').value = $('#preview-id').value;
+      $('#nulls-id').value = $('#preview-id').value;
+      $('#cast-source').value = $('#preview-id').value;
+    };
+    // Initial sync after brief delay
+    setTimeout(syncIds, 200);
+  });
+})();
+

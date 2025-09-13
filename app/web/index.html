@@ -17,6 +17,9 @@
     </header>
 
     <main>
+      <datalist id="dataset-ids"></datalist>
+      <datalist id="columns-suggest"></datalist>
+
       <section class="card">
         <h2>1) CSV 업로드</h2>
         <form id="upload-form">
@@ -38,7 +41,7 @@
       <section class="card">
         <h2>3) 미리보기</h2>
         <form id="preview-form">
-          <label>Dataset ID: <input type="text" id="preview-id" required /></label>
+          <label>Dataset ID: <input type="text" id="preview-id" list="dataset-ids" required /></label>
           <label>행 수: <input type="number" id="preview-n" value="20" min="1" max="1000" /></label>
           <button type="submit">미리보기</button>
         </form>
@@ -48,7 +51,7 @@
       <section class="card">
         <h2>4) 요약 통계</h2>
         <form id="describe-form">
-          <label>Dataset ID: <input type="text" id="describe-id" required /></label>
+          <label>Dataset ID: <input type="text" id="describe-id" list="dataset-ids" required /></label>
           <label>샘플 행 제한: <input type="number" id="describe-limit" value="5000" min="10" max="200000" /></label>
           <label>전체 컬럼 포함: <input type="checkbox" id="describe-all" checked /></label>
           <button type="submit">요약 보기</button>
@@ -59,7 +62,7 @@
       <section class="card">
         <h2>5) 결측치 현황</h2>
         <form id="nulls-form">
-          <label>Dataset ID: <input type="text" id="nulls-id" required /></label>
+          <label>Dataset ID: <input type="text" id="nulls-id" list="dataset-ids" required /></label>
           <label>행 제한(옵션): <input type="number" id="nulls-limit" placeholder="전체" min="1" /></label>
           <button type="submit">결측치 보기</button>
         </form>
@@ -69,8 +72,8 @@
       <section class="card">
         <h2>6) 타입 변환</h2>
         <form id="cast-form">
-          <label>Source ID: <input type="text" id="cast-source" required /></label>
-          <label>Column: <input type="text" id="cast-column" required /></label>
+          <label>Source ID: <input type="text" id="cast-source" list="dataset-ids" required /></label>
+          <label>Column: <input type="text" id="cast-column" list="columns-suggest" required /></label>
           <label>Target Type:
             <select id="cast-type">
               <option value="int">int</option>
@@ -91,8 +94,8 @@
       <section class="card">
         <h2>7) 분포(Distribution)</h2>
         <form id="dist-form">
-          <label>Dataset ID: <input type="text" id="dist-id" required /></label>
-          <label>Column: <input type="text" id="dist-col" required /></label>
+          <label>Dataset ID: <input type="text" id="dist-id" list="dataset-ids" required /></label>
+          <label>Column: <input type="text" id="dist-col" list="columns-suggest" required /></label>
           <label>Bins(숫자형): <input type="number" id="dist-bins" value="20" min="1" max="200" /></label>
           <label>TopK(문자형): <input type="number" id="dist-topk" value="20" min="1" max="200" /></label>
           <label><input type="checkbox" id="dist-dropna" checked /> 결측치 제외</label>
@@ -105,7 +108,7 @@
       <section class="card">
         <h2>8) 상관관계(Correlation)</h2>
         <form id="corr-form">
-          <label>Dataset ID: <input type="text" id="corr-id" required /></label>
+          <label>Dataset ID: <input type="text" id="corr-id" list="dataset-ids" required /></label>
           <label>Method:
             <select id="corr-method">
               <option value="pearson" selected>pearson</option>
@@ -123,13 +126,13 @@
       <section class="card">
         <h2>9) 샘플/필터 다운로드</h2>
         <form id="sample-form">
-          <label>Dataset ID: <input type="text" id="sample-id" required /></label>
+          <label>Dataset ID: <input type="text" id="sample-id" list="dataset-ids" required /></label>
           <label>Rows: <input type="number" id="sample-rows" value="100" min="1" max="100000" /></label>
           <button type="submit">샘플 CSV 다운로드</button>
         </form>
         <hr />
         <form id="filter-form">
-          <label>Dataset ID: <input type="text" id="filter-id" required /></label>
+          <label>Dataset ID: <input type="text" id="filter-id" list="dataset-ids" required /></label>
           <label>Columns(쉼표): <input type="text" id="filter-cols" placeholder="예: col1,col2" /></label>
           <label>Limit: <input type="number" id="filter-limit" value="10000" min="0" max="500000" /></label>
           <label>Query: <input type="text" id="filter-query" placeholder="예: price > 10 and category == 'A'" /></label>
@@ -142,7 +145,7 @@
         <h2>10) 기초 전처리</h2>
         <h3>결측치 채우기 (fillna)</h3>
         <form id="fillna-form">
-          <label>Source ID: <input type="text" id="fillna-source" required /></label>
+          <label>Source ID: <input type="text" id="fillna-source" list="dataset-ids" required /></label>
           <label>Columns(옵션, 쉼표): <input type="text" id="fillna-cols" placeholder="미지정 시 전체" /></label>
           <label>Strategy:
             <select id="fillna-strategy">
@@ -160,7 +163,7 @@
 
         <h3>컬럼 삭제 (drop)</h3>
         <form id="drop-form">
-          <label>Source ID: <input type="text" id="drop-source" required /></label>
+          <label>Source ID: <input type="text" id="drop-source" list="dataset-ids" required /></label>
           <label>Columns(쉼표): <input type="text" id="drop-cols" required placeholder="예: col1,col2" /></label>
           <label>Out ID(옵션): <input type="text" id="drop-out" placeholder="자동 생성" /></label>
           <button type="submit">실행</button>
@@ -169,7 +172,7 @@
 
         <h3>컬럼 이름 변경 (rename)</h3>
         <form id="rename-form">
-          <label>Source ID: <input type="text" id="rename-source" required /></label>
+          <label>Source ID: <input type="text" id="rename-source" list="dataset-ids" required /></label>
           <label>Mapping(쉼표, 콜론): <input type="text" id="rename-mapping" placeholder="old1:new1,old2:new2" required /></label>
           <label>Out ID(옵션): <input type="text" id="rename-out" placeholder="자동 생성" /></label>
           <button type="submit">실행</button>
@@ -183,5 +186,6 @@
     </footer>
 
     <script src="./app.js"></script>
+    <script src="./suggest.js"></script>
   </body>
   </html>

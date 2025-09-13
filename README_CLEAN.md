@@ -1,4 +1,4 @@
-Data Analysis Studio — Clean Start (FastAPI)
+﻿Data Analysis Studio ??Clean Start (FastAPI)
 
 Quick Start
 
@@ -12,8 +12,8 @@ run.bat
 
 - http://127.0.0.1:8000/
 - http://127.0.0.1:8000/api/healthz
-- http://127.0.0.1:8000/web  (웹 UI)
-  - 참고: 이제 루트(`/`)는 `/web`으로 리다이렉트됩니다.
+- http://127.0.0.1:8000/web  (??UI)
+  - 李멸퀬: ?댁젣 猷⑦듃(`/`)??`/web`?쇰줈 由щ떎?대젆?몃맗?덈떎.
 
 Dataset APIs (CSV)
 
@@ -23,29 +23,28 @@ Dataset APIs (CSV)
 - GET  `http://127.0.0.1:8000/api/datasets/{id}/describe?limit=5000&include_all=true`
  - GET  `http://127.0.0.1:8000/api/datasets/{id}/download`
  - DELETE `http://127.0.0.1:8000/api/datasets/{id}`
- - GET  `http://127.0.0.1:8000/api/datasets/{id}/nulls?limit=100000` (결측치 현황; limit 미지정 시 전체)
- - POST `http://127.0.0.1:8000/api/datasets/{id}/cast` JSON: `{ "column": "col", "to": "int|float|string|datetime|bool|category", "mode": "coerce|strict", "out_id": "(옵션)" }`
+ - GET  `http://127.0.0.1:8000/api/datasets/{id}/nulls?limit=100000` (寃곗륫移??꾪솴; limit 誘몄??????꾩껜)
+ - POST `http://127.0.0.1:8000/api/datasets/{id}/cast` JSON: `{ "column": "col", "to": "int|float|string|datetime|bool|category", "mode": "coerce|strict", "out_id": "(?듭뀡)" }`
  - GET  `http://127.0.0.1:8000/api/datasets/{id}/distribution?column=col&bins=20&topk=20&limit=50000&dropna=true`
-     - 숫자형: 히스토그램(bins)
-     - 문자형: Top-K 빈도
-  - GET  `http://127.0.0.1:8000/api/datasets/{id}/corr?method=pearson&limit=50000` (수치 컬럼 상관행렬)
-  - GET  `http://127.0.0.1:8000/api/datasets/{id}/sample.csv?rows=100` (상위 N행을 CSV로 다운로드)
+     - ?レ옄?? ?덉뒪?좉렇??bins)
+     - 臾몄옄?? Top-K 鍮덈룄
+  - GET  `http://127.0.0.1:8000/api/datasets/{id}/corr?method=pearson&limit=50000` (?섏튂 而щ읆 ?곴??됰젹)
+  - GET  `http://127.0.0.1:8000/api/datasets/{id}/sample.csv?rows=100` (?곸쐞 N?됱쓣 CSV濡??ㅼ슫濡쒕뱶)
   - GET  `http://127.0.0.1:8000/api/datasets/{id}/filter.csv?columns=col1,col2&limit=10000&query=price>10 and category=='A'`
-    - 주의: query는 pandas DataFrame.query 문법 사용
-  - POST `http://127.0.0.1:8000/api/datasets/{id}/fillna` JSON: `{ "columns": [..](옵션), "strategy": "value|mean|median|mode", "value": any(옵션), "out_id": "(옵션)" }`
-  - POST `http://127.0.0.1:8000/api/datasets/{id}/drop` JSON: `{ "columns": ["col1", "col2"], "out_id": "(옵션)" }`
-  - POST `http://127.0.0.1:8000/api/datasets/{id}/rename` JSON: `{ "mapping": { "old": "new", ... }, "out_id": "(옵션)" }`
- - GET  `http://127.0.0.1:8000/api/info` (앱 정보 JSON)
+    - 二쇱쓽: query??pandas DataFrame.query 臾몃쾿 ?ъ슜
+  - POST `http://127.0.0.1:8000/api/datasets/{id}/fillna` JSON: `{ "columns": [..](?듭뀡), "strategy": "value|mean|median|mode", "value": any(?듭뀡), "out_id": "(?듭뀡)" }`
+  - POST `http://127.0.0.1:8000/api/datasets/{id}/drop` JSON: `{ "columns": ["col1", "col2"], "out_id": "(?듭뀡)" }`
+  - POST `http://127.0.0.1:8000/api/datasets/{id}/rename` JSON: `{ "mapping": { "old": "new", ... }, "out_id": "(?듭뀡)" }`
+ - GET  `http://127.0.0.1:8000/api/info` (???뺣낫 JSON)
 
 Web UI
 
-- 경로: `/web` (정적 HTML/JS)
-- 기능: 업로드, 목록, 미리보기, 요약 통계 확인
-  - 추가: 결측치 현황 조회, 타입 변환(새 데이터셋 생성)
-  - 추가: 분포 시각화(캔버스 바 차트 + 테이블), 상관관계 시각화(히트맵 + 테이블)
-  - 추가: 샘플/필터 CSV 다운로드 폼
-  - 추가: 기초 전처리(결측치 채우기, 컬럼 삭제/이름변경)
-- 팁: 새 기능을 추가할 때 `app/web/`의 UI 섹션을 함께 확장하세요.
+- 寃쎈줈: `/web` (?뺤쟻 HTML/JS)
+- 湲곕뒫: ?낅줈?? 紐⑸줉, 誘몃━蹂닿린, ?붿빟 ?듦퀎 ?뺤씤
+  - 異붽?: 寃곗륫移??꾪솴 議고쉶, ???蹂?????곗씠?곗뀑 ?앹꽦)
+  - 異붽?: 遺꾪룷 ?쒓컖??罹붾쾭??諛?李⑦듃 + ?뚯씠釉?, ?곴?愿怨??쒓컖???덊듃留?+ ?뚯씠釉?
+  - 異붽?: ?섑뵆/?꾪꽣 CSV ?ㅼ슫濡쒕뱶 ??  - 異붽?: 湲곗큹 ?꾩쿂由?寃곗륫移?梨꾩슦湲? 而щ읆 ??젣/?대쫫蹂寃?
+- ?? ??湲곕뒫??異붽?????`app/web/`??UI ?뱀뀡???④퍡 ?뺤옣?섏꽭??
 
 Environment
 
@@ -65,3 +64,4 @@ Dev Tips
 
 - Launch directly with uvicorn if preferred:
   `.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload`
+

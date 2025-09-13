@@ -834,3 +834,26 @@ def download_filter_csv(
     buf.seek(0)
     filename = f"{dataset_id}_filter.csv"
     return StreamingResponse(buf, media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+
+@router.get("/{dataset_id}/schema")
+def dataset_schema(dataset_id: str, sample: int = 1000) -> Dict[str, Any]:
+    """
+    Return dataset schema info (columns and inferred dtypes) using a small sample.
+    """
+    path = _csv_path(dataset_id)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    try:
+        df = pd.read_csv(path, nrows=max(1, min(int(sample), 100000)))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
+    dtypes = {c: str(t) for c, t in df.dtypes.items()}
+    num_cols = [c for c, t in df.dtypes.items() if pd.api.types.is_numeric_dtype(t)]
+    return {
+        "dataset_id": dataset_id,
+        "columns": list(df.columns),
+        "dtypes": dtypes,
+        "numeric_columns": list(num_cols),
+        "sample_rows": len(df),
+    }
