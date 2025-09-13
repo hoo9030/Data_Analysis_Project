@@ -938,6 +938,8 @@ class GroupByRequest(BaseModel):
     dropna: Optional[bool] = True
     as_index: Optional[bool] = False
     out_id: Optional[str] = None
+    chunked: Optional[bool] = Field(False, description="Enable chunked aggregation for large files")
+    chunksize: Optional[int] = Field(50000, description="Chunk size when chunked=true")
 
 
 @router.post("/{dataset_id}/groupby")
@@ -945,14 +947,10 @@ def groupby_aggregate(dataset_id: str, req: GroupByRequest) -> Dict[str, Any]:
     path = _csv_path(dataset_id)
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Dataset not found")
-    try:
-        df = pd.read_csv(path)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
-
     if not req.by:
         raise HTTPException(status_code=400, detail="'by' must not be empty")
 
+    # Normalize and validate aggs mapping
     allowed_aggs = {"sum", "mean", "median", "min", "max", "count", "nunique", "std", "var", "first", "last"}
     mapping: Dict[str, List[str]] = {}
     for col, agg in (req.aggs or {}).items():
@@ -967,15 +965,121 @@ def groupby_aggregate(dataset_id: str, req: GroupByRequest) -> Dict[str, Any]:
     if not mapping:
         raise HTTPException(status_code=400, detail="'aggs' must not be empty")
 
-    try:
-        gb = df.groupby(req.by, dropna=True if req.dropna is None else bool(req.dropna))
-        out = gb.agg(mapping)
-        if isinstance(out.columns, pd.MultiIndex):
-            out.columns = ["_".join([str(x) for x in t if x != ""]).strip("_") for t in out.columns.to_flat_index()]
-        if not req.as_index:
-            out = out.reset_index()
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"GroupBy failed: {e}")
+    # Non-chunked path: delegate to pandas
+    if not req.chunked:
+        try:
+            df = pd.read_csv(path)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
+        try:
+            gb = df.groupby(req.by, dropna=True if req.dropna is None else bool(req.dropna))
+            out = gb.agg(mapping)
+            if isinstance(out.columns, pd.MultiIndex):
+                out.columns = ["_".join([str(x) for x in t if x != ""]).strip("_") for t in out.columns.to_flat_index()]
+            if not req.as_index:
+                out = out.reset_index()
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"GroupBy failed: {e}")
+    else:
+        # Chunked path: support a safe subset of aggregations
+        allowed_chunk_aggs = {"sum", "min", "max", "count", "mean"}
+        for col, aggs in mapping.items():
+            for a in aggs:
+                if a not in allowed_chunk_aggs:
+                    raise HTTPException(status_code=400, detail=f"Unsupported agg for chunked mode: {a}")
+
+        # State: { key_tuple: { col: {sum: float, count: int, min: Any, max: Any} } }
+        state: Dict[tuple, Dict[str, Dict[str, Any]]] = {}
+
+        def norm_key(vals: List[Any]) -> tuple:
+            return tuple(v if pd.notna(v) else None for v in vals)
+
+        chunksize = max(1000, int(req.chunksize or 50000))
+        try:
+            for chunk in pd.read_csv(path, chunksize=chunksize):
+                # Handle dropna on grouping keys
+                if req.dropna is None or bool(req.dropna):
+                    chunk2 = chunk.dropna(subset=req.by)
+                else:
+                    chunk2 = chunk
+                if chunk2.empty:
+                    continue
+                for col, aggs in mapping.items():
+                    needs = set(aggs)
+                    # Choose aggregations to compute in this pass
+                    ops: List[str] = []
+                    if ("sum" in needs) or ("mean" in needs):
+                        ops.append("sum")
+                    if "min" in needs:
+                        ops.append("min")
+                    if "max" in needs:
+                        ops.append("max")
+                    if ("count" in needs) or ("mean" in needs):
+                        ops.append("count")
+                    if not ops:
+                        continue
+                    try:
+                        gb = chunk2.groupby(req.by, dropna=False)[col].agg(ops).reset_index()
+                    except Exception as e:
+                        raise HTTPException(status_code=400, detail=f"GroupBy failed on column {col}: {e}")
+                    for _, row in gb.iterrows():
+                        key = norm_key([row[b] for b in req.by])
+                        cstat = state.setdefault(key, {}).setdefault(col, {"sum": 0.0, "count": 0, "min": None, "max": None})
+                        if "sum" in gb.columns:
+                            v = row.get("sum")
+                            if pd.notna(v):
+                                try:
+                                    cstat["sum"] += float(v)
+                                except Exception:
+                                    # For non-numeric, skip sum
+                                    pass
+                        if "count" in gb.columns:
+                            v = row.get("count")
+                            try:
+                                cstat["count"] += int(v)
+                            except Exception:
+                                pass
+                        if "min" in gb.columns:
+                            v = row.get("min")
+                            if cstat["min"] is None or (pd.notna(v) and v < cstat["min"]):
+                                cstat["min"] = v
+                        if "max" in gb.columns:
+                            v = row.get("max")
+                            if cstat["max"] is None or (pd.notna(v) and v > cstat["max"]):
+                                cstat["max"] = v
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Chunked groupby failed: {e}")
+
+        # Build output frame
+        rows: List[Dict[str, Any]] = []
+        for key, cols in state.items():
+            row: Dict[str, Any] = {}
+            if not req.as_index:
+                for i, k in enumerate(key):
+                    row[req.by[i]] = k
+            # Deterministic col order
+            for col, aggs in mapping.items():
+                cstat = cols.get(col, {"sum": None, "count": 0, "min": None, "max": None})
+                for a in aggs:
+                    name = f"{col}_{a}"
+                    if a == "sum":
+                        row[name] = None if cstat["sum"] is None else cstat["sum"]
+                    elif a == "count":
+                        row[name] = int(cstat["count"])
+                    elif a == "min":
+                        row[name] = cstat["min"]
+                    elif a == "max":
+                        row[name] = cstat["max"]
+                    elif a == "mean":
+                        cnt = cstat["count"]
+                        row[name] = (cstat["sum"] / cnt) if cnt else None
+            rows.append(row)
+        out = pd.DataFrame(rows)
+        # If as_index True, keep only aggregated columns (by keys implied)
+        if req.as_index and not out.empty:
+            out = out[[c for c in out.columns if c not in req.by]]
 
     out_id = (req.out_id or str(uuid.uuid4())).strip() or str(uuid.uuid4())
     out_path = _csv_path(out_id)

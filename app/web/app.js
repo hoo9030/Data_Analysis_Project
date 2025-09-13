@@ -651,11 +651,14 @@
       const aggsStr = $('#gb-aggs').value.trim();
       const dropna = $('#gb-dropna').checked;
       const asindex = $('#gb-asindex').checked;
+      const chunked = $('#gb-chunked').checked;
+      const chunksizeStr = $('#gb-chunksize').value.trim();
       const out = $('#gb-out').value.trim();
       const result = $('#gb-result');
       result.textContent = '실행 중...';
       if (!source || !by.length || !aggsStr) { result.textContent = 'Source/By/Aggs 필요'; return; }
-      const body = { by, aggs: parseAggs(aggsStr), dropna, as_index: asindex };
+      const body = { by, aggs: parseAggs(aggsStr), dropna, as_index: asindex, chunked };
+      if (chunked && chunksizeStr) body.chunksize = Number(chunksizeStr);
       if (out) body.out_id = out;
       try {
         const data = await fetchJSON(`${apiBase}/datasets/${encodeURIComponent(source)}/groupby`, {

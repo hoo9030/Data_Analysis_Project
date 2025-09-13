@@ -7,6 +7,8 @@ Extended APIs for Data Analysis Studio
 - POST `/api/datasets/{id}/groupby`
   - Body: `{ "by": ["col"], "aggs": { "target": ["mean","sum"] }, "dropna": true, "as_index": false, "out_id": "(optional)" }`
   - Group by columns and aggregate with common reducers.
+  - Options: `chunked: true`, `chunksize: 50000` for large files.
+    - Chunked supports a subset of aggs: `sum|min|max|count|mean`.
 
 - POST `/api/datasets/{id}/merge`
   - Body: `{ "right_id": "other", "on": ["key"], "how": "inner|left|right|outer", "suffixes": ["_x","_y"], "out_id": "(optional)" }`

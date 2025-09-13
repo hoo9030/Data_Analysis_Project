@@ -202,6 +202,8 @@
           <label>Aggs(세미콜론/콤마): <input type="text" id="gb-aggs" placeholder="예: target:mean,sum; feature_1:mean" required /></label>
           <label><input type="checkbox" id="gb-dropna" checked /> NA 그룹 제외</label>
           <label><input type="checkbox" id="gb-asindex" /> as_index</label>
+          <label><input type="checkbox" id="gb-chunked" /> chunked</label>
+          <label>Chunk Size: <input type="number" id="gb-chunksize" value="50000" min="1000" step="1000" /></label>
           <label>Out ID(선택): <input type="text" id="gb-out" placeholder="자동 생성" /></label>
           <button type="submit">집계 실행</button>
         </form>
