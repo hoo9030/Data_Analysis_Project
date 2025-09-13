@@ -86,7 +86,7 @@
             </select>
           </label>
           <label>Out ID(선택): <input type="text" id="cast-out" placeholder="자동 생성" /></label>
-          <label><input type="checkbox" id="cast-strict" /> strict 모드(변환 실패 시 에러)</label>
+          <label><input type="checkbox" id="cast-strict" /> strict 모드(변환 실패 시 오류)</label>
           <button type="submit">변환 실행</button>
         </form>
         <div id="cast-result" class="muted"></div>
@@ -143,15 +143,15 @@
           <label>Query: <input type="text" id="filter-query" placeholder="예: price > 10 and category == 'A'" /></label>
           <button type="submit">필터 CSV 다운로드</button>
         </form>
-        <div class="muted">주의: Query는 pandas query 문법을 사용합니다.</div>
+        <div class="muted">주의: Query는 pandas DataFrame.query 문법 사용</div>
       </section>
 
       <section class="card">
         <h2>10) 기초 전처리</h2>
-        <h3>결측치 채우기 (fillna)</h3>
+        <h3>결측치 채우기(fillna)</h3>
         <form id="fillna-form">
           <label>Source ID: <input type="text" id="fillna-source" list="dataset-ids" required /></label>
-          <label>Columns(선택, 쉼표): <input type="text" id="fillna-cols" placeholder="미입력시 전체" /></label>
+          <label>Columns(선택, 쉼표): <input type="text" id="fillna-cols" placeholder="미입력 시 전체" /></label>
           <label>Strategy:
             <select id="fillna-strategy">
               <option value="value" selected>value</option>
@@ -175,7 +175,7 @@
         </form>
         <div id="drop-result" class="muted"></div>
 
-        <h3>컬럼 이름 변경 (rename)</h3>
+        <h3>컬럼 이름 변경(rename)</h3>
         <form id="rename-form">
           <label>Source ID: <input type="text" id="rename-source" list="dataset-ids" required /></label>
           <label>Mapping(쉼표, 콜론): <input type="text" id="rename-mapping" placeholder="old1:new1,old2:new2" required /></label>
@@ -332,3 +332,4 @@
     <script src="./suggest.js"></script>
   </body>
   </html>
+
