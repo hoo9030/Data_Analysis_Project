@@ -100,13 +100,15 @@
       ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
     });
 
-    // Bars
+    // Bars and hitboxes for tooltip
     let x = pad.left + (innerW - (barW + gap) * n + gap) / 2;
     ctx.fillStyle = '#2f81f7';
+    const hits = [];
     for (let i = 0; i < n; i++) {
       const h = Math.round(values[i] / maxV * innerH);
       const y = pad.top + innerH - h;
       ctx.fillRect(x, y, barW, h);
+      hits.push({ x, y, w: barW, h, label: labels[i], value: values[i] });
       x += barW + gap;
     }
 
@@ -133,6 +135,26 @@
       x += barW + gap;
     }
     ctx.restore();
+
+    // Tooltip wiring
+    const tip = ensureTooltip(container);
+    function toCanvasXY(ev) {
+      const rect = canvas.getBoundingClientRect();
+      const ox = (ev.clientX - rect.left) * (canvas.width / rect.width);
+      const oy = (ev.clientY - rect.top) * (canvas.height / rect.height);
+      return { x: ox, y: oy };
+    }
+    canvas.onmouseleave = () => hideTooltip(tip);
+    canvas.onmousemove = (ev) => {
+      const p = toCanvasXY(ev);
+      for (const hb of hits) {
+        if (p.x >= hb.x && p.x <= hb.x + hb.w && p.y >= hb.y && p.y <= hb.y + hb.h) {
+          showTooltip(tip, ev, `${escapeHtml(String(hb.label))}<br><b>${hb.value}</b>`);
+          return;
+        }
+      }
+      hideTooltip(tip);
+    };
   }
 
   function colorForCorr(v) {
@@ -205,6 +227,55 @@
     legend.className = 'legend';
     legend.innerHTML = '<span>-1</span><div class="legend-bar"></div><span>+1</span>';
     container.appendChild(legend);
+
+    // Tooltip wiring
+    const tip = ensureTooltip(container);
+    const canvasRectToXY = (ev) => {
+      const rect = canvas.getBoundingClientRect();
+      const ox = (ev.clientX - rect.left) * (canvas.width / rect.width);
+      const oy = (ev.clientY - rect.top) * (canvas.height / rect.height);
+      return { x: ox, y: oy };
+    };
+    canvas.onmouseleave = () => hideTooltip(tip);
+    canvas.onmousemove = (ev) => {
+      const p = canvasRectToXY(ev);
+      const rx = p.x - pad.left;
+      const ry = p.y - pad.top;
+      if (rx < 0 || ry < 0 || rx >= n * cell || ry >= n * cell) { hideTooltip(tip); return; }
+      const c = Math.floor(rx / cell);
+      const r = Math.floor(ry / cell);
+      const col = columns[c];
+      const row = columns[r];
+      const v = (matrix[row] || {})[col];
+      const vstr = (v === null || v === undefined || Number.isNaN(v)) ? 'NA' : Number(v).toFixed(3);
+      showTooltip(tip, ev, `${escapeHtml(row)} × ${escapeHtml(col)}<br><b>${vstr}</b>`);
+    };
+  }
+
+  // Tooltip helpers
+  function ensureTooltip(container) {
+    let tip = container.querySelector('.tooltip');
+    if (!tip) {
+      tip = document.createElement('div');
+      tip.className = 'tooltip';
+      container.appendChild(tip);
+    }
+    return tip;
+  }
+  function showTooltip(tip, mouseEvent, html) {
+    tip.innerHTML = html;
+    tip.style.display = 'block';
+    const rect = tip.parentElement.getBoundingClientRect();
+    const x = mouseEvent.clientX - rect.left + 10;
+    const y = mouseEvent.clientY - rect.top + 10;
+    tip.style.left = `${x}px`;
+    tip.style.top = `${y}px`;
+  }
+  function hideTooltip(tip) {
+    tip.style.display = 'none';
+  }
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
   }
 
   async function fetchJSON(url, opts) {
