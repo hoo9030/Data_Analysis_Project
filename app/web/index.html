@@ -100,6 +100,8 @@
           <label>Bins(숫자): <input type="number" id="dist-bins" value="20" min="1" max="200" /></label>
           <label>TopK(문자): <input type="number" id="dist-topk" value="20" min="1" max="200" /></label>
           <label><input type="checkbox" id="dist-dropna" checked /> 결측치 제외</label>
+          <label><input type="checkbox" id="dist-chunked" /> chunked</label>
+          <label>Chunk Size: <input type="number" id="dist-chunksize" value="50000" min="1000" step="1000" /></label>
           <button type="submit">분포 계산</button>
         </form>
         <div id="dist-chart" class="chart"></div>
@@ -118,6 +120,8 @@
             </select>
           </label>
           <label>제한: <input type="number" id="corr-limit" value="50000" min="100" /></label>
+          <label><input type="checkbox" id="corr-chunked" /> chunked(pearson)</label>
+          <label>Chunk Size: <input type="number" id="corr-chunksize" value="50000" min="1000" step="1000" /></label>
           <button type="submit">상관분석</button>
         </form>
         <div id="corr-chart" class="chart"></div>

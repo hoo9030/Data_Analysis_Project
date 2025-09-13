@@ -27,6 +27,13 @@ Extended APIs for Data Analysis Studio
 - GET `/api/datasets/{id}/profile?sample=10000`
   - Per-column profile: dtype, non_null, nulls, distinct, top value/count, numeric stats.
 
+- GET `/api/datasets/{id}/distribution?column=col&bins=20&topk=20&dropna=true&chunked=true&chunksize=50000`
+  - Chunked numeric histogram uses two-pass min/max + counting.
+  - Categorical uses streaming value counts. Returns same schema.
+
+- GET `/api/datasets/{id}/corr?method=pearson&chunked=true&chunksize=50000`
+  - Chunked Pearson correlation via online covariance (complete-case rows).
+
 ML APIs
 
 - POST `/api/ml/train`

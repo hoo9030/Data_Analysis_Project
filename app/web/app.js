@@ -423,6 +423,13 @@
       url.searchParams.set('topk', String(topk));
       url.searchParams.set('dropna', String(dropna));
       try {
+        const chk = document.getElementById('dist-chunked');
+        if (chk && chk.checked) url.searchParams.set('chunked', 'true');
+        const csEl = document.getElementById('dist-chunksize');
+        const csVal = csEl && csEl.value ? String(Number(csEl.value.trim())) : '';
+        if (csVal) url.searchParams.set('chunksize', csVal);
+      } catch (_) { /* ignore */ }
+      try {
         const data = await fetchJSON(url.toString());
         if (data.type === 'numeric') {
           container.appendChild(el('div', { class: 'muted' }, `min=${data.min}, max=${data.max}, bins=${data.bins}, total=${data.total}, na=${data.na_count}`));
@@ -455,6 +462,13 @@
       const url = new URL(`${apiBase}/datasets/${encodeURIComponent(id)}/corr`);
       url.searchParams.set('method', method);
       if (limit) url.searchParams.set('limit', String(limit));
+      try {
+        const chk = document.getElementById('corr-chunked');
+        if (chk && chk.checked) url.searchParams.set('chunked', 'true');
+        const csEl = document.getElementById('corr-chunksize');
+        const csVal = csEl && csEl.value ? String(Number(csEl.value.trim())) : '';
+        if (csVal) url.searchParams.set('chunksize', csVal);
+      } catch (_) { /* ignore */ }
       try {
         const data = await fetchJSON(url.toString());
         if ((data.columns || []).length) {

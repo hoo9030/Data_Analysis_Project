@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
+import numpy as np
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 import shutil
@@ -585,6 +586,8 @@ def distribution(
     topk: int = 20,
     limit: Optional[int] = 50000,
     dropna: bool = True,
+    chunked: bool = False,
+    chunksize: int = 50000,
 ) -> Dict[str, Any]:
     """
     Compute a simple distribution for a column.
@@ -595,60 +598,203 @@ def distribution(
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Dataset not found")
 
-    try:
-        nrows = None if (limit is None or limit <= 0) else int(limit)
-        df = pd.read_csv(path, nrows=nrows)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
-
-    if column not in df.columns:
-        raise HTTPException(status_code=404, detail=f"Column not found: {column}")
-
-    s = df[column]
-    na_count = int(s.isna().sum())
-    total = int(len(s))
-
-    # Decide if numeric
-    is_numeric = pd.api.types.is_numeric_dtype(s)
-    if not is_numeric:
+    if not chunked:
         try:
+            nrows = None if (limit is None or limit <= 0) else int(limit)
+            df = pd.read_csv(path, nrows=nrows)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
+
+        if column not in df.columns:
+            raise HTTPException(status_code=404, detail=f"Column not found: {column}")
+
+        s = df[column]
+        na_count = int(s.isna().sum())
+        total = int(len(s))
+
+        # Decide if numeric
+        is_numeric = pd.api.types.is_numeric_dtype(s)
+        if not is_numeric:
+            try:
+                s_num = pd.to_numeric(s, errors="coerce")
+                numeric_ratio = float(s_num.notna().mean()) if len(s_num) else 0.0
+                is_numeric = numeric_ratio >= 0.8
+            except Exception:
+                is_numeric = False
+
+        if is_numeric:
+            # Numeric histogram
             s_num = pd.to_numeric(s, errors="coerce")
-            numeric_ratio = float(s_num.notna().mean()) if len(s_num) else 0.0
-            is_numeric = numeric_ratio >= 0.8
+            if dropna:
+                s_num = s_num.dropna()
+            if len(s_num) == 0:
+                return {
+                    "dataset_id": dataset_id,
+                    "column": column,
+                    "type": "numeric",
+                    "total": total,
+                    "na_count": na_count,
+                    "items": [],
+                    "bins": bins,
+                }
+            try:
+                cut = pd.cut(s_num, bins=max(1, int(bins)), include_lowest=True)
+                counts = cut.value_counts().sort_index()
+                items = []
+                for interval, cnt in counts.items():
+                    try:
+                        left = float(interval.left)
+                        right = float(interval.right)
+                    except Exception:
+                        left = None
+                        right = None
+                    items.append({
+                        "left": left,
+                        "right": right,
+                        "count": int(cnt),
+                        "label": str(interval),
+                    })
+                return {
+                    "dataset_id": dataset_id,
+                    "column": column,
+                    "type": "numeric",
+                    "total": total,
+                    "na_count": na_count,
+                    "bins": bins,
+                    "min": float(s_num.min()) if len(s_num) else None,
+                    "max": float(s_num.max()) if len(s_num) else None,
+                    "items": items,
+                }
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Failed to compute histogram: {e}")
+        else:
+            # Categorical top-K
+            try:
+                counts = s.value_counts(dropna=True)
+                items = []
+                for val, cnt in counts.head(max(1, int(topk))).items():
+                    items.append({
+                        "value": None if pd.isna(val) else str(val),
+                        "count": int(cnt),
+                    })
+                return {
+                    "dataset_id": dataset_id,
+                    "column": column,
+                    "type": "categorical",
+                    "total": total,
+                    "na_count": na_count,
+                    "topk": topk,
+                    "unique": int(counts.size),
+                    "items": items,
+                }
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Failed to compute value counts: {e}")
+    else:
+        # Chunked two-pass for numeric; single-pass for categorical
+        if chunksize < 1000:
+            chunksize = 1000
+        # Read header to ensure column exists
+        try:
+            df_head = pd.read_csv(path, nrows=1)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
+        if column not in df_head.columns:
+            raise HTTPException(status_code=404, detail=f"Column not found: {column}")
+
+        total = 0
+        na_count = 0
+        numeric_non_na = 0
+        non_na = 0
+        vmin = None
+        vmax = None
+        # First pass: detect numeric ratio, min, max, and total/na_count
+        try:
+            rows_left = int(limit) if (limit is not None and int(limit) > 0) else None
+            for chunk in pd.read_csv(path, usecols=[column], chunksize=chunksize):
+                s = chunk[column]
+                c_na = int(s.isna().sum())
+                na_count += c_na
+                total += int(len(s))
+                # numeric detection
+                s_num = pd.to_numeric(s, errors="coerce")
+                numeric_non_na += int(s_num.notna().sum())
+                non_na += int((~s.isna()).sum())
+                # min/max from s_num
+                if dropna:
+                    s_num2 = s_num.dropna()
+                else:
+                    s_num2 = s_num
+                if len(s_num2):
+                    cmin = float(np.nanmin(s_num2.values))
+                    cmax = float(np.nanmax(s_num2.values))
+                    vmin = cmin if vmin is None else min(vmin, cmin)
+                    vmax = cmax if vmax is None else max(vmax, cmax)
+                if rows_left is not None:
+                    rows_left -= len(s)
+                    if rows_left <= 0:
+                        break
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed during first pass: {e}")
+
+        is_numeric = False
+        try:
+            ratio = float(numeric_non_na) / float(non_na) if non_na else 0.0
+            is_numeric = ratio >= 0.8
         except Exception:
             is_numeric = False
 
-    if is_numeric:
-        # Numeric histogram
-        s_num = pd.to_numeric(s, errors="coerce")
-        if dropna:
-            s_num = s_num.dropna()
-        if len(s_num) == 0:
-            return {
-                "dataset_id": dataset_id,
-                "column": column,
-                "type": "numeric",
-                "total": total,
-                "na_count": na_count,
-                "items": [],
-                "bins": bins,
-            }
-        try:
-            cut = pd.cut(s_num, bins=max(1, int(bins)), include_lowest=True)
-            counts = cut.value_counts().sort_index()
+        if is_numeric:
+            if vmin is None or vmax is None or vmin == np.inf or vmax == -np.inf:
+                return {
+                    "dataset_id": dataset_id,
+                    "column": column,
+                    "type": "numeric",
+                    "total": total,
+                    "na_count": na_count,
+                    "bins": bins,
+                    "items": [],
+                }
+            # Setup bins
+            bins_n = max(1, int(bins))
+            left_edges = np.linspace(vmin, vmax, num=bins_n, endpoint=False)
+            right_edges = np.linspace(vmin, vmax, num=bins_n+1, endpoint=True)[1:]
+            counts = np.zeros(bins_n, dtype=np.int64)
+            # Second pass: count
+            try:
+                rows_left = int(limit) if (limit is not None and int(limit) > 0) else None
+                width = (vmax - vmin) if (vmax - vmin) != 0 else 1.0
+                for chunk in pd.read_csv(path, usecols=[column], chunksize=chunksize):
+                    s = pd.to_numeric(chunk[column], errors="coerce")
+                    if dropna:
+                        s = s.dropna()
+                    if len(s) == 0:
+                        if rows_left is not None:
+                            rows_left -= len(chunk[column])
+                            if rows_left <= 0:
+                                break
+                        continue
+                    vals = s.values.astype(float)
+                    # Compute bin index; handle right edge inclusively into last bin
+                    idx = np.floor((vals - vmin) / (width / bins_n)).astype(int)
+                    idx = np.clip(idx, 0, bins_n - 1)
+                    for i in idx:
+                        counts[int(i)] += 1
+                    if rows_left is not None:
+                        rows_left -= len(chunk[column])
+                        if rows_left <= 0:
+                            break
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Failed during second pass: {e}")
+
             items = []
-            for interval, cnt in counts.items():
-                try:
-                    left = float(interval.left)
-                    right = float(interval.right)
-                except Exception:
-                    left = None
-                    right = None
+            for i in range(bins_n):
+                left = float(left_edges[i])
+                right = float(right_edges[i])
                 items.append({
                     "left": left,
                     "right": right,
-                    "count": int(cnt),
-                    "label": str(interval),
+                    "count": int(counts[i]),
+                    "label": f"({left}, {right}]",
                 })
             return {
                 "dataset_id": dataset_id,
@@ -656,23 +802,34 @@ def distribution(
                 "type": "numeric",
                 "total": total,
                 "na_count": na_count,
-                "bins": bins,
-                "min": float(s_num.min()) if len(s_num) else None,
-                "max": float(s_num.max()) if len(s_num) else None,
+                "bins": bins_n,
+                "min": float(vmin),
+                "max": float(vmax),
                 "items": items,
             }
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Failed to compute histogram: {e}")
-    else:
-        # Categorical top-K
-        try:
-            counts = s.value_counts(dropna=True)
-            items = []
-            for val, cnt in counts.head(max(1, int(topk))).items():
-                items.append({
-                    "value": None if pd.isna(val) else str(val),
-                    "count": int(cnt),
-                })
+        else:
+            # Categorical top-K counting
+            counter: Dict[str, int] = {}
+            unique = 0
+            try:
+                rows_left = int(limit) if (limit is not None and int(limit) > 0) else None
+                for chunk in pd.read_csv(path, usecols=[column], chunksize=chunksize):
+                    s = chunk[column]
+                    # Drop NaN for counts
+                    s = s.dropna()
+                    for v in s:
+                        key = str(v)
+                        counter[key] = counter.get(key, 0) + 1
+                    if rows_left is not None:
+                        rows_left -= len(chunk[column])
+                        if rows_left <= 0:
+                            break
+                unique = len(counter)
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Failed to compute value counts: {e}")
+            # topk selection
+            topn = sorted(counter.items(), key=lambda x: x[1], reverse=True)[: max(1, int(topk))]
+            items = [{"value": k, "count": int(v)} for k, v in topn]
             return {
                 "dataset_id": dataset_id,
                 "column": column,
@@ -680,15 +837,13 @@ def distribution(
                 "total": total,
                 "na_count": na_count,
                 "topk": topk,
-                "unique": int(counts.size),
+                "unique": int(unique),
                 "items": items,
             }
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Failed to compute value counts: {e}")
 
 
 @router.get("/{dataset_id}/corr")
-def correlation(dataset_id: str, method: str = "pearson", limit: Optional[int] = 50000) -> Dict[str, Any]:
+def correlation(dataset_id: str, method: str = "pearson", limit: Optional[int] = 50000, chunked: bool = False, chunksize: int = 50000) -> Dict[str, Any]:
     """
     Compute correlation matrix across numeric columns using pandas DataFrame.corr.
     method: pearson|spearman|kendall
@@ -700,36 +855,112 @@ def correlation(dataset_id: str, method: str = "pearson", limit: Optional[int] =
     if method not in {"pearson", "spearman", "kendall"}:
         raise HTTPException(status_code=400, detail=f"Unsupported method: {method}")
 
-    try:
-        nrows = None if (limit is None or limit <= 0) else int(limit)
-        df = pd.read_csv(path, nrows=nrows)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
+    if not chunked:
+        try:
+            nrows = None if (limit is None or limit <= 0) else int(limit)
+            df = pd.read_csv(path, nrows=nrows)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
 
-    num = df.select_dtypes(include="number")
-    if num.shape[1] < 2:
-        return {"dataset_id": dataset_id, "columns": list(num.columns), "matrix": {}, "rows": int(num.shape[0])}
+        num = df.select_dtypes(include="number")
+        if num.shape[1] < 2:
+            return {"dataset_id": dataset_id, "columns": list(num.columns), "matrix": {}, "rows": int(num.shape[0])}
 
-    try:
-        corr = num.corr(method=method)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to compute correlation: {e}")
+        try:
+            corr = num.corr(method=method)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to compute correlation: {e}")
 
-    matrix: Dict[str, Dict[str, Optional[float]]] = {}
-    for r in corr.index:
-        row = {}
-        for c in corr.columns:
-            v = corr.loc[r, c]
-            row[c] = None if pd.isna(v) else float(v)
-        matrix[r] = row
+        matrix: Dict[str, Dict[str, Optional[float]]] = {}
+        for r in corr.index:
+            row = {}
+            for c in corr.columns:
+                v = corr.loc[r, c]
+                row[c] = None if pd.isna(v) else float(v)
+            matrix[r] = row
 
-    return {
-        "dataset_id": dataset_id,
-        "method": method,
-        "columns": list(corr.columns),
-        "matrix": matrix,
-        "rows": int(num.shape[0]),
-    }
+        return {
+            "dataset_id": dataset_id,
+            "method": method,
+            "columns": list(corr.columns),
+            "matrix": matrix,
+            "rows": int(num.shape[0]),
+        }
+    else:
+        if method != "pearson":
+            raise HTTPException(status_code=400, detail="chunked corr supports only method=pearson")
+        if chunksize < 1000:
+            chunksize = 1000
+        # Initialize state
+        n = 0
+        mean = None  # type: ignore
+        M2 = None    # type: ignore
+        cols: List[str] = []
+        try:
+            rows_left = int(limit) if (limit is not None and int(limit) > 0) else None
+            for chunk in pd.read_csv(path, chunksize=chunksize):
+                num_chunk = chunk.select_dtypes(include="number")
+                if num_chunk.shape[1] < 2:
+                    if rows_left is not None:
+                        rows_left -= len(chunk)
+                        if rows_left <= 0:
+                            break
+                    continue
+                if not cols:
+                    cols = list(num_chunk.columns)
+                else:
+                    # align columns to first set
+                    num_chunk = num_chunk[cols]
+                # drop rows with NA in any numeric col (complete-case)
+                num_chunk = num_chunk.dropna(axis=0, how="any")
+                if num_chunk.empty:
+                    if rows_left is not None:
+                        rows_left -= len(chunk)
+                        if rows_left <= 0:
+                            break
+                    continue
+                X = num_chunk.to_numpy(dtype=float)
+                for i in range(X.shape[0]):
+                    x = X[i, :]
+                    n += 1
+                    if mean is None:
+                        mean = np.zeros_like(x)
+                        M2 = np.zeros((x.shape[0], x.shape[0]), dtype=float)
+                    delta = x - mean
+                    mean = mean + delta / n
+                    delta2 = x - mean
+                    # outer product update
+                    M2 = M2 + np.outer(delta, delta2)
+                if rows_left is not None:
+                    rows_left -= len(chunk)
+                    if rows_left <= 0:
+                        break
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to compute chunked correlation: {e}")
+
+        if n < 2 or len(cols) < 2 or mean is None or M2 is None:
+            return {"dataset_id": dataset_id, "columns": cols, "matrix": {}, "rows": int(n)}
+        cov = M2 / (n - 1)
+        # convert to correlation
+        diag = np.sqrt(np.diag(cov))
+        with np.errstate(invalid='ignore', divide='ignore'):
+            denom = np.outer(diag, diag)
+            corr = cov / denom
+        # build matrix mapping
+        matrix: Dict[str, Dict[str, Optional[float]]] = {}
+        for i, r in enumerate(cols):
+            row: Dict[str, Optional[float]] = {}
+            for j, c in enumerate(cols):
+                v = corr[i, j]
+                row[c] = None if (np.isnan(v) or np.isinf(v)) else float(v)
+            matrix[r] = row
+        return {
+            "dataset_id": dataset_id,
+            "method": method,
+            "columns": cols,
+            "matrix": matrix,
+            "rows": int(n),
+        }
 
 
 @router.get("/{dataset_id}/download")
@@ -816,6 +1047,7 @@ def download_filter_csv(
     query: Optional[str] = None,
     columns: Optional[str] = None,
     limit: int = 10000,
+    chunksize: int = 50000,
 ) -> StreamingResponse:
     path = _csv_path(dataset_id)
     if not os.path.exists(path):
@@ -824,19 +1056,46 @@ def download_filter_csv(
     cols_list: Optional[List[str]] = None
     if columns:
         cols_list = [c.strip() for c in columns.split(",") if c.strip()]
-    try:
-        lim = max(0, min(int(limit), 500000))
-        df = _read_filtered_df(path, query=query, columns=cols_list, limit=lim)
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to filter CSV: {e}")
 
-    buf = io.StringIO()
-    df.to_csv(buf, index=False)
-    buf.seek(0)
+    lim = max(0, min(int(limit), 100000000))
+
+    def row_iter():
+        header_written = False
+        written = 0
+        try:
+            for chunk in pd.read_csv(path, chunksize=max(1000, int(chunksize))):
+                dfc = chunk
+                if query:
+                    try:
+                        dfc = dfc.query(query, engine="python")
+                    except Exception as e:
+                        raise HTTPException(status_code=400, detail=f"Invalid query: {e}")
+                if cols_list:
+                    cols = [c for c in cols_list if c in dfc.columns]
+                    if cols:
+                        dfc = dfc[cols]
+                if lim > 0 and written >= lim:
+                    break
+                if lim > 0 and written + len(dfc) > lim:
+                    dfc = dfc.iloc[: max(0, lim - written)]
+                if dfc.empty:
+                    continue
+                # write chunk
+                buf = io.StringIO()
+                dfc.to_csv(buf, index=False, header=not header_written)
+                header_written = True or header_written
+                buf.seek(0)
+                data = buf.read()
+                buf.close()
+                written += len(dfc)
+                yield data
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to filter CSV: {e}")
+
     filename = f"{dataset_id}_filter.csv"
-    return StreamingResponse(buf, media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={filename}"})
+    return StreamingResponse(row_iter(), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 
 @router.get("/{dataset_id}/schema")
