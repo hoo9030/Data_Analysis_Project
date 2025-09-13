@@ -38,8 +38,11 @@ def _load_meta() -> Dict[str, Any]:
 
 def _save_meta(meta: Dict[str, Any]) -> None:
     os.makedirs(DATA_ROOT, exist_ok=True)
-    with open(META_PATH, "w", encoding="utf-8") as f:
+    # Atomic write to reduce risk of corruption
+    tmp_path = META_PATH + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2, ensure_ascii=False)
+    os.replace(tmp_path, META_PATH)
 
 
 def _csv_path(dataset_id: str) -> str:
@@ -856,4 +859,409 @@ def dataset_schema(dataset_id: str, sample: int = 1000) -> Dict[str, Any]:
         "dtypes": dtypes,
         "numeric_columns": list(num_cols),
         "sample_rows": len(df),
+    }
+
+
+# ---- Extended operations ----
+
+class ComputeRequest(BaseModel):
+    expr: str = Field(..., description="Pandas eval expression, e.g., 'colA + colB'")
+    out_col: Optional[str] = Field(None, description="Output column name (created or overwritten)")
+    inplace: bool = Field(False, description="If true and out_col exists, overwrite it")
+    out_id: Optional[str] = None
+
+
+@router.post("/{dataset_id}/compute")
+def compute_column(dataset_id: str, req: ComputeRequest) -> Dict[str, Any]:
+    path = _csv_path(dataset_id)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    try:
+        df = pd.read_csv(path)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
+
+    target_col = (req.out_col or "computed").strip()
+    if not target_col:
+        raise HTTPException(status_code=400, detail="out_col must not be empty")
+
+    try:
+        series = df.eval(req.expr)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Expression failed: {e}")
+
+    # Assign/overwrite
+    if target_col in df.columns and not req.inplace:
+        # Avoid silent overwrite unless inplace requested
+        raise HTTPException(status_code=409, detail=f"Column already exists: {target_col} (set inplace=true to overwrite)")
+    df[target_col] = series
+
+    out_id = (req.out_id or str(uuid.uuid4())).strip() or str(uuid.uuid4())
+    out_path = _csv_path(out_id)
+    if os.path.exists(out_path):
+        raise HTTPException(status_code=409, detail=f"Output dataset already exists: {out_id}")
+    try:
+        _ensure_dirs()
+        df.to_csv(out_path, index=False)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save new dataset: {e}")
+
+    meta = _load_meta()
+    created_at = _now_iso()
+    dtypes = {c: str(t) for c, t in df.dtypes.items()}
+    meta["datasets"][out_id] = {
+        "id": out_id,
+        "filename": os.path.basename(out_path),
+        "original_name": f"derive:{dataset_id}",
+        "path": os.path.relpath(out_path, os.getcwd()),
+        "size_bytes": os.path.getsize(out_path),
+        "columns": list(df.columns),
+        "dtypes": dtypes,
+        "sampled_rows": min(50, len(df)),
+        "created_at": created_at,
+        "updated_at": created_at,
+    }
+    _save_meta(meta)
+
+    return {
+        "status": "ok",
+        "source_id": dataset_id,
+        "dataset_id": out_id,
+        "computed": target_col,
+        "metadata": meta["datasets"][out_id],
+    }
+
+
+class GroupByRequest(BaseModel):
+    by: List[str] = Field(..., description="Grouping columns")
+    aggs: Dict[str, Any] = Field(..., description="Aggregation mapping: {col: agg or [aggs]}")
+    dropna: Optional[bool] = True
+    as_index: Optional[bool] = False
+    out_id: Optional[str] = None
+
+
+@router.post("/{dataset_id}/groupby")
+def groupby_aggregate(dataset_id: str, req: GroupByRequest) -> Dict[str, Any]:
+    path = _csv_path(dataset_id)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    try:
+        df = pd.read_csv(path)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
+
+    if not req.by:
+        raise HTTPException(status_code=400, detail="'by' must not be empty")
+
+    allowed_aggs = {"sum", "mean", "median", "min", "max", "count", "nunique", "std", "var", "first", "last"}
+    mapping: Dict[str, List[str]] = {}
+    for col, agg in (req.aggs or {}).items():
+        if isinstance(agg, list):
+            vals = [str(a).lower() for a in agg]
+        else:
+            vals = [str(agg).lower()]
+        for a in vals:
+            if a not in allowed_aggs:
+                raise HTTPException(status_code=400, detail=f"Unsupported agg: {a}")
+        mapping[col] = vals
+    if not mapping:
+        raise HTTPException(status_code=400, detail="'aggs' must not be empty")
+
+    try:
+        gb = df.groupby(req.by, dropna=True if req.dropna is None else bool(req.dropna))
+        out = gb.agg(mapping)
+        if isinstance(out.columns, pd.MultiIndex):
+            out.columns = ["_".join([str(x) for x in t if x != ""]).strip("_") for t in out.columns.to_flat_index()]
+        if not req.as_index:
+            out = out.reset_index()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"GroupBy failed: {e}")
+
+    out_id = (req.out_id or str(uuid.uuid4())).strip() or str(uuid.uuid4())
+    out_path = _csv_path(out_id)
+    if os.path.exists(out_path):
+        raise HTTPException(status_code=409, detail=f"Output dataset already exists: {out_id}")
+    try:
+        _ensure_dirs()
+        out.to_csv(out_path, index=False)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save new dataset: {e}")
+
+    meta = _load_meta()
+    created_at = _now_iso()
+    dtypes = {c: str(t) for c, t in out.dtypes.items()}
+    meta["datasets"][out_id] = {
+        "id": out_id,
+        "filename": os.path.basename(out_path),
+        "original_name": f"derive:{dataset_id}",
+        "path": os.path.relpath(out_path, os.getcwd()),
+        "size_bytes": os.path.getsize(out_path),
+        "columns": list(out.columns),
+        "dtypes": dtypes,
+        "sampled_rows": min(50, len(out)),
+        "created_at": created_at,
+        "updated_at": created_at,
+    }
+    _save_meta(meta)
+
+    return {"status": "ok", "source_id": dataset_id, "dataset_id": out_id, "rows": int(len(out)), "metadata": meta["datasets"][out_id]}
+
+
+class MergeRequest(BaseModel):
+    right_id: str
+    on: Optional[List[str]] = None
+    left_on: Optional[List[str]] = None
+    right_on: Optional[List[str]] = None
+    how: str = Field("inner", description="inner|left|right|outer")
+    suffixes: Optional[List[str]] = Field(None, description="Suffixes like ['_x','_y']")
+    out_id: Optional[str] = None
+
+
+@router.post("/{dataset_id}/merge")
+def merge_datasets(dataset_id: str, req: MergeRequest) -> Dict[str, Any]:
+    left_path = _csv_path(dataset_id)
+    if not os.path.exists(left_path):
+        raise HTTPException(status_code=404, detail="Left dataset not found")
+    right_path = _csv_path(req.right_id)
+    if not os.path.exists(right_path):
+        raise HTTPException(status_code=404, detail="Right dataset not found")
+
+    if req.how not in {"inner", "left", "right", "outer"}:
+        raise HTTPException(status_code=400, detail=f"Unsupported how: {req.how}")
+
+    if not req.on and not (req.left_on and req.right_on):
+        raise HTTPException(status_code=400, detail="Provide 'on' or both 'left_on' and 'right_on'")
+
+    try:
+        left = pd.read_csv(left_path)
+        right = pd.read_csv(right_path)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
+
+    try:
+        kwargs: Dict[str, Any] = {"how": req.how}
+        if req.on:
+            kwargs["on"] = req.on
+        if req.left_on and req.right_on:
+            kwargs["left_on"] = req.left_on
+            kwargs["right_on"] = req.right_on
+        if req.suffixes and len(req.suffixes) == 2:
+            kwargs["suffixes"] = (req.suffixes[0], req.suffixes[1])
+        out = left.merge(right, **kwargs)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Merge failed: {e}")
+
+    out_id = (req.out_id or str(uuid.uuid4())).strip() or str(uuid.uuid4())
+    out_path = _csv_path(out_id)
+    if os.path.exists(out_path):
+        raise HTTPException(status_code=409, detail=f"Output dataset already exists: {out_id}")
+    try:
+        _ensure_dirs()
+        out.to_csv(out_path, index=False)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save new dataset: {e}")
+
+    meta = _load_meta()
+    created_at = _now_iso()
+    dtypes = {c: str(t) for c, t in out.dtypes.items()}
+    meta["datasets"][out_id] = {
+        "id": out_id,
+        "filename": os.path.basename(out_path),
+        "original_name": f"merge:{dataset_id}+{req.right_id}",
+        "path": os.path.relpath(out_path, os.getcwd()),
+        "size_bytes": os.path.getsize(out_path),
+        "columns": list(out.columns),
+        "dtypes": dtypes,
+        "sampled_rows": min(50, len(out)),
+        "created_at": created_at,
+        "updated_at": created_at,
+    }
+    _save_meta(meta)
+
+    return {"status": "ok", "left_id": dataset_id, "right_id": req.right_id, "dataset_id": out_id, "rows": int(len(out)), "metadata": meta["datasets"][out_id]}
+
+
+class SortRequest(BaseModel):
+    by: List[str] = Field(..., description="Columns to sort by; prefix '-' for desc")
+    limit: Optional[int] = Field(None, description="Keep only first N rows after sort")
+    na_position: Optional[str] = Field("last", description="first|last")
+    out_id: Optional[str] = None
+
+
+@router.post("/{dataset_id}/sort")
+def sort_dataset(dataset_id: str, req: SortRequest) -> Dict[str, Any]:
+    path = _csv_path(dataset_id)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    try:
+        df = pd.read_csv(path)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
+
+    cols: List[str] = []
+    ascending: List[bool] = []
+    for key in (req.by or []):
+        if not key:
+            continue
+        desc = key.startswith("-")
+        col = key[1:] if key.startswith("-") or key.startswith("+") else key
+        cols.append(col)
+        ascending.append(not desc)
+    if not cols:
+        raise HTTPException(status_code=400, detail="'by' must not be empty")
+    try:
+        out = df.sort_values(by=cols, ascending=ascending, na_position=req.na_position or "last")
+        if req.limit is not None and int(req.limit) >= 0:
+            out = out.head(int(req.limit))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Sort failed: {e}")
+
+    out_id = (req.out_id or str(uuid.uuid4())).strip() or str(uuid.uuid4())
+    out_path = _csv_path(out_id)
+    if os.path.exists(out_path):
+        raise HTTPException(status_code=409, detail=f"Output dataset already exists: {out_id}")
+    try:
+        _ensure_dirs()
+        out.to_csv(out_path, index=False)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save new dataset: {e}")
+
+    meta = _load_meta()
+    created_at = _now_iso()
+    dtypes = {c: str(t) for c, t in out.dtypes.items()}
+    meta["datasets"][out_id] = {
+        "id": out_id,
+        "filename": os.path.basename(out_path),
+        "original_name": f"derive:{dataset_id}",
+        "path": os.path.relpath(out_path, os.getcwd()),
+        "size_bytes": os.path.getsize(out_path),
+        "columns": list(out.columns),
+        "dtypes": dtypes,
+        "sampled_rows": min(50, len(out)),
+        "created_at": created_at,
+        "updated_at": created_at,
+    }
+    _save_meta(meta)
+
+    return {"status": "ok", "source_id": dataset_id, "dataset_id": out_id, "rows": int(len(out)), "metadata": meta["datasets"][out_id]}
+
+
+class DedupRequest(BaseModel):
+    subset: Optional[List[str]] = Field(None, description="Columns to consider; default all")
+    keep: str = Field("first", description="first|last|none (drop all duplicates)")
+    out_id: Optional[str] = None
+
+
+@router.post("/{dataset_id}/dedup")
+def deduplicate(dataset_id: str, req: DedupRequest) -> Dict[str, Any]:
+    path = _csv_path(dataset_id)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    try:
+        df = pd.read_csv(path)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
+
+    keep_val: Any
+    k = (req.keep or "first").lower()
+    if k in {"none", "false", "drop"}:
+        keep_val = False
+    elif k in {"first", "last"}:
+        keep_val = k
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported keep: {req.keep}")
+
+    try:
+        out = df.drop_duplicates(subset=req.subset, keep=keep_val)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Dedup failed: {e}")
+
+    out_id = (req.out_id or str(uuid.uuid4())).strip() or str(uuid.uuid4())
+    out_path = _csv_path(out_id)
+    if os.path.exists(out_path):
+        raise HTTPException(status_code=409, detail=f"Output dataset already exists: {out_id}")
+    try:
+        _ensure_dirs()
+        out.to_csv(out_path, index=False)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save new dataset: {e}")
+
+    meta = _load_meta()
+    created_at = _now_iso()
+    dtypes = {c: str(t) for c, t in out.dtypes.items()}
+    meta["datasets"][out_id] = {
+        "id": out_id,
+        "filename": os.path.basename(out_path),
+        "original_name": f"derive:{dataset_id}",
+        "path": os.path.relpath(out_path, os.getcwd()),
+        "size_bytes": os.path.getsize(out_path),
+        "columns": list(out.columns),
+        "dtypes": dtypes,
+        "sampled_rows": min(50, len(out)),
+        "created_at": created_at,
+        "updated_at": created_at,
+    }
+    _save_meta(meta)
+
+    return {"status": "ok", "source_id": dataset_id, "dataset_id": out_id, "rows": int(len(out)), "metadata": meta["datasets"][out_id]}
+
+
+@router.get("/{dataset_id}/profile")
+def profile_dataset(dataset_id: str, sample: int = 10000) -> Dict[str, Any]:
+    """
+    Compute per-column profile on a sample: dtype, non_null, nulls, distinct,
+    top value, and simple numeric stats.
+    """
+    path = _csv_path(dataset_id)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    try:
+        n = max(1, min(int(sample), 200000))
+        df = pd.read_csv(path, nrows=n)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
+
+    items: List[Dict[str, Any]] = []
+    for c in df.columns:
+        s = df[c]
+        dtype = str(s.dtype)
+        non_null = int(s.notna().sum())
+        nulls = int(s.isna().sum())
+        try:
+            distinct = int(s.nunique(dropna=True))
+        except Exception:
+            distinct = None  # type: ignore
+        top_value = None
+        top_count: Optional[int] = None
+        try:
+            vc = s.value_counts(dropna=True)
+            if not vc.empty:
+                top_value = None if pd.isna(vc.index[0]) else (str(vc.index[0]) if not pd.api.types.is_numeric_dtype(s) else float(vc.index[0]))
+                top_count = int(vc.iloc[0])
+        except Exception:
+            pass
+        row: Dict[str, Any] = {
+            "column": c,
+            "dtype": dtype,
+            "non_null": non_null,
+            "nulls": nulls,
+            "distinct": distinct,
+            "top_value": top_value,
+            "top_count": top_count,
+        }
+        if pd.api.types.is_numeric_dtype(s):
+            try:
+                row.update({
+                    "min": float(s.min(skipna=True)),
+                    "max": float(s.max(skipna=True)),
+                    "mean": float(s.mean(skipna=True)),
+                })
+            except Exception:
+                pass
+        items.append(row)
+
+    return {
+        "dataset_id": dataset_id,
+        "sample_rows": int(len(df)),
+        "items": items,
     }

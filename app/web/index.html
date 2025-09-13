@@ -179,6 +179,94 @@
         </form>
         <div id="rename-result" class="muted"></div>
       </section>
+
+      <section class="card">
+        <h2>11) 계산열(Compute)</h2>
+        <form id="compute-form">
+          <label>Source ID: <input type="text" id="compute-source" list="dataset-ids" required /></label>
+          <label>Expression: <input type="text" id="compute-expr" placeholder="예: feature_1 + feature_2" required /></label>
+          <label>Out Column: <input type="text" id="compute-outcol" placeholder="예: sum_f1_f2" /></label>
+          <label><input type="checkbox" id="compute-inplace" /> 기존 컬럼 덮어쓰기</label>
+          <label>Out ID(선택): <input type="text" id="compute-out" placeholder="자동 생성" /></label>
+          <button type="submit">계산 실행</button>
+        </form>
+        <div id="compute-result" class="muted"></div>
+      </section>
+
+      <section class="card">
+        <h2>12) 그룹집계(GroupBy)</h2>
+        <form id="gb-form">
+          <label>Source ID: <input type="text" id="gb-source" list="dataset-ids" required /></label>
+          <label>By(,로 구분): <input type="text" id="gb-by" placeholder="예: category" required /></label>
+          <label>Aggs(세미콜론/콤마): <input type="text" id="gb-aggs" placeholder="예: target:mean,sum; feature_1:mean" required /></label>
+          <label><input type="checkbox" id="gb-dropna" checked /> NA 그룹 제외</label>
+          <label><input type="checkbox" id="gb-asindex" /> as_index</label>
+          <label>Out ID(선택): <input type="text" id="gb-out" placeholder="자동 생성" /></label>
+          <button type="submit">집계 실행</button>
+        </form>
+        <div id="gb-result" class="muted"></div>
+      </section>
+
+      <section class="card">
+        <h2>13) 조인(Merge)</h2>
+        <form id="merge-form">
+          <label>Left ID: <input type="text" id="merge-left" list="dataset-ids" required /></label>
+          <label>Right ID: <input type="text" id="merge-right" list="dataset-ids" required /></label>
+          <label>On(,로 구분): <input type="text" id="merge-on" placeholder="예: key" required /></label>
+          <label>How:
+            <select id="merge-how">
+              <option value="inner" selected>inner</option>
+              <option value="left">left</option>
+              <option value="right">right</option>
+              <option value="outer">outer</option>
+            </select>
+          </label>
+          <label>Suffixes: <input type="text" id="merge-suffixes" placeholder="예: _x,_y" /></label>
+          <label>Out ID(선택): <input type="text" id="merge-out" placeholder="자동 생성" /></label>
+          <button type="submit">조인 실행</button>
+        </form>
+        <div id="merge-result" class="muted"></div>
+      </section>
+
+      <section class="card">
+        <h2>14) 정렬/상위(Sort/Limit)</h2>
+        <form id="sort-form">
+          <label>Source ID: <input type="text" id="sort-source" list="dataset-ids" required /></label>
+          <label>By(,-접두어는 내림차순): <input type="text" id="sort-by" placeholder="예: -target,feature_1" required /></label>
+          <label>Limit: <input type="number" id="sort-limit" value="100" min="0" /></label>
+          <label>Out ID(선택): <input type="text" id="sort-out" placeholder="자동 생성" /></label>
+          <button type="submit">정렬 실행</button>
+        </form>
+        <div id="sort-result" class="muted"></div>
+      </section>
+
+      <section class="card">
+        <h2>15) 중복 제거(Dedup)</h2>
+        <form id="dedup-form">
+          <label>Source ID: <input type="text" id="dedup-source" list="dataset-ids" required /></label>
+          <label>Subset(,로 구분/미입력=전체): <input type="text" id="dedup-subset" placeholder="예: key" /></label>
+          <label>Keep:
+            <select id="dedup-keep">
+              <option value="first" selected>first</option>
+              <option value="last">last</option>
+              <option value="none">none</option>
+            </select>
+          </label>
+          <label>Out ID(선택): <input type="text" id="dedup-out" placeholder="자동 생성" /></label>
+          <button type="submit">중복 제거</button>
+        </form>
+        <div id="dedup-result" class="muted"></div>
+      </section>
+
+      <section class="card">
+        <h2>16) 프로파일(Profile)</h2>
+        <form id="prof-form">
+          <label>Dataset ID: <input type="text" id="prof-source" list="dataset-ids" required /></label>
+          <label>Sample Rows: <input type="number" id="prof-sample" value="10000" min="10" max="200000" /></label>
+          <button type="submit">프로파일 조회</button>
+        </form>
+        <div id="prof-view"></div>
+      </section>
     </main>
 
     <footer>
@@ -189,4 +277,3 @@
     <script src="./suggest.js"></script>
   </body>
   </html>
-

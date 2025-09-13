@@ -591,6 +591,222 @@
     });
   }
 
+  function bindCompute() {
+    const form = document.getElementById('compute-form');
+    if (!form) return;
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const source = $('#compute-source').value.trim();
+      const expr = $('#compute-expr').value.trim();
+      const outcol = $('#compute-outcol').value.trim();
+      const inplace = $('#compute-inplace').checked;
+      const out = $('#compute-out').value.trim();
+      const result = $('#compute-result');
+      result.textContent = '실행 중...';
+      if (!source || !expr) { result.textContent = 'Source/Expression 필요'; return; }
+      const body = { expr, inplace };
+      if (outcol) body.out_col = outcol;
+      if (out) body.out_id = out;
+      try {
+        const data = await fetchJSON(`${apiBase}/datasets/${encodeURIComponent(source)}/compute`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        });
+        result.textContent = `완료: ${data.dataset_id} (computed=${data.computed})`;
+        await refreshList();
+        $('#preview-id').value = data.dataset_id;
+        $('#describe-id').value = data.dataset_id;
+        $('#nulls-id').value = data.dataset_id;
+        $('#cast-source').value = data.dataset_id;
+        $('#gb-source').value = data.dataset_id;
+        $('#sort-source').value = data.dataset_id;
+        $('#dedup-source').value = data.dataset_id;
+        $('#prof-source').value = data.dataset_id;
+      } catch (e) {
+        result.textContent = `실패: ${e.message}`;
+      }
+    });
+  }
+
+  function parseAggs(input) {
+    // Example: "target:mean,sum; feature_1:mean"
+    const mapping = {};
+    (input || '').split(';').map(x => x.trim()).filter(Boolean).forEach(pair => {
+      const idx = pair.indexOf(':');
+      if (idx <= 0) return;
+      const col = pair.slice(0, idx).trim();
+      const rest = pair.slice(idx + 1).trim();
+      const aggs = rest.split(',').map(s => s.trim()).filter(Boolean);
+      if (col && aggs.length) mapping[col] = aggs;
+    });
+    return mapping;
+  }
+
+  function bindGroupBy() {
+    const form = document.getElementById('gb-form');
+    if (!form) return;
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const source = $('#gb-source').value.trim();
+      const by = $('#gb-by').value.split(',').map(s => s.trim()).filter(Boolean);
+      const aggsStr = $('#gb-aggs').value.trim();
+      const dropna = $('#gb-dropna').checked;
+      const asindex = $('#gb-asindex').checked;
+      const out = $('#gb-out').value.trim();
+      const result = $('#gb-result');
+      result.textContent = '실행 중...';
+      if (!source || !by.length || !aggsStr) { result.textContent = 'Source/By/Aggs 필요'; return; }
+      const body = { by, aggs: parseAggs(aggsStr), dropna, as_index: asindex };
+      if (out) body.out_id = out;
+      try {
+        const data = await fetchJSON(`${apiBase}/datasets/${encodeURIComponent(source)}/groupby`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        });
+        result.textContent = `완료: ${data.dataset_id} (rows=${data.rows})`;
+        await refreshList();
+        $('#preview-id').value = data.dataset_id;
+        $('#describe-id').value = data.dataset_id;
+        $('#nulls-id').value = data.dataset_id;
+        $('#cast-source').value = data.dataset_id;
+        $('#gb-source').value = data.dataset_id;
+        $('#sort-source').value = data.dataset_id;
+        $('#dedup-source').value = data.dataset_id;
+        $('#prof-source').value = data.dataset_id;
+      } catch (e) {
+        result.textContent = `실패: ${e.message}`;
+      }
+    });
+  }
+
+  function bindMerge() {
+    const form = document.getElementById('merge-form');
+    if (!form) return;
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const left = $('#merge-left').value.trim();
+      const right = $('#merge-right').value.trim();
+      const on = $('#merge-on').value.split(',').map(s => s.trim()).filter(Boolean);
+      const how = $('#merge-how').value;
+      const suffixesStr = $('#merge-suffixes').value.trim();
+      const out = $('#merge-out').value.trim();
+      const result = $('#merge-result');
+      result.textContent = '실행 중...';
+      if (!left || !right || !on.length) { result.textContent = 'Left/Right/On 필요'; return; }
+      const body = { right_id: right, on, how };
+      if (suffixesStr) body.suffixes = suffixesStr.split(',').map(s => s.trim()).filter(Boolean);
+      if (out) body.out_id = out;
+      try {
+        const data = await fetchJSON(`${apiBase}/datasets/${encodeURIComponent(left)}/merge`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        });
+        result.textContent = `완료: ${data.dataset_id} (rows=${data.rows})`;
+        await refreshList();
+        $('#preview-id').value = data.dataset_id;
+        $('#describe-id').value = data.dataset_id;
+        $('#nulls-id').value = data.dataset_id;
+        $('#cast-source').value = data.dataset_id;
+        $('#gb-source').value = data.dataset_id;
+        $('#sort-source').value = data.dataset_id;
+        $('#dedup-source').value = data.dataset_id;
+        $('#prof-source').value = data.dataset_id;
+      } catch (e) {
+        result.textContent = `실패: ${e.message}`;
+      }
+    });
+  }
+
+  function bindSortLimit() {
+    const form = document.getElementById('sort-form');
+    if (!form) return;
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const source = $('#sort-source').value.trim();
+      const by = $('#sort-by').value.split(',').map(s => s.trim()).filter(Boolean);
+      const limit = Number($('#sort-limit').value || 0);
+      const out = $('#sort-out').value.trim();
+      const result = $('#sort-result');
+      result.textContent = '실행 중...';
+      if (!source || !by.length) { result.textContent = 'Source/By 필요'; return; }
+      const body = { by };
+      if (limit >= 0) body.limit = limit;
+      if (out) body.out_id = out;
+      try {
+        const data = await fetchJSON(`${apiBase}/datasets/${encodeURIComponent(source)}/sort`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        });
+        result.textContent = `완료: ${data.dataset_id} (rows=${data.rows})`;
+        await refreshList();
+        $('#preview-id').value = data.dataset_id;
+        $('#describe-id').value = data.dataset_id;
+        $('#nulls-id').value = data.dataset_id;
+        $('#cast-source').value = data.dataset_id;
+        $('#gb-source').value = data.dataset_id;
+        $('#sort-source').value = data.dataset_id;
+        $('#dedup-source').value = data.dataset_id;
+        $('#prof-source').value = data.dataset_id;
+      } catch (e) {
+        result.textContent = `실패: ${e.message}`;
+      }
+    });
+  }
+
+  function bindDedup() {
+    const form = document.getElementById('dedup-form');
+    if (!form) return;
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const source = $('#dedup-source').value.trim();
+      const subsetStr = $('#dedup-subset').value.trim();
+      const keep = $('#dedup-keep').value;
+      const out = $('#dedup-out').value.trim();
+      const result = $('#dedup-result');
+      result.textContent = '실행 중...';
+      if (!source) { result.textContent = 'Source 필요'; return; }
+      const body = { keep };
+      if (subsetStr) body.subset = subsetStr.split(',').map(s => s.trim()).filter(Boolean);
+      if (out) body.out_id = out;
+      try {
+        const data = await fetchJSON(`${apiBase}/datasets/${encodeURIComponent(source)}/dedup`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        });
+        result.textContent = `완료: ${data.dataset_id} (rows=${data.rows})`;
+        await refreshList();
+        $('#preview-id').value = data.dataset_id;
+        $('#describe-id').value = data.dataset_id;
+        $('#nulls-id').value = data.dataset_id;
+        $('#cast-source').value = data.dataset_id;
+        $('#gb-source').value = data.dataset_id;
+        $('#sort-source').value = data.dataset_id;
+        $('#dedup-source').value = data.dataset_id;
+        $('#prof-source').value = data.dataset_id;
+      } catch (e) {
+        result.textContent = `실패: ${e.message}`;
+      }
+    });
+  }
+
+  function bindProfile() {
+    const form = document.getElementById('prof-form');
+    if (!form) return;
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const id = $('#prof-source').value.trim();
+      const sample = Number($('#prof-sample').value || 10000);
+      const container = $('#prof-view');
+      container.innerHTML = '';
+      if (!id) { container.textContent = 'Dataset ID 필요'; return; }
+      const url = new URL(`${apiBase}/datasets/${encodeURIComponent(id)}/profile`);
+      if (sample) url.searchParams.set('sample', String(sample));
+      try {
+        const data = await fetchJSON(url.toString());
+        const columns = ['column','dtype','non_null','nulls','distinct','top_value','top_count','min','max','mean'];
+        const rows = (data.items || []).map(x => x);
+        container.appendChild(renderTable(columns, rows));
+      } catch (e) {
+        container.textContent = `프로파일 실패: ${e.message}`;
+      }
+    });
+  }
+
   window.addEventListener('DOMContentLoaded', async () => {
     bindUpload();
     bindPreview();
@@ -602,6 +818,12 @@
     bindCorrelation();
     bindSampleFilter();
     bindPreprocess();
+    bindCompute();
+    bindGroupBy();
+    bindMerge();
+    bindSortLimit();
+    bindDedup();
+    bindProfile();
     await loadInfo();
     await refreshList();
     const syncIds = () => {
@@ -613,4 +835,3 @@
     setTimeout(syncIds, 200);
   });
 })();
-
