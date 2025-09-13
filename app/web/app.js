@@ -56,6 +56,157 @@
     return table;
   }
 
+  function createCanvas(container, width, height) {
+    // Clear container
+    container.innerHTML = '';
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(320, width);
+    canvas.height = Math.max(120, height);
+    container.appendChild(canvas);
+    return canvas;
+  }
+
+  function pick(container, fallback) {
+    const w = container.getBoundingClientRect().width;
+    return Math.max(320, Math.floor(w || fallback));
+  }
+
+  function drawBarChart(container, items, labelKey, countKey) {
+    const W = pick(container, 800);
+    const H = 300;
+    const pad = { left: 48, right: 16, top: 16, bottom: 80 };
+    const canvas = createCanvas(container, W, H);
+    const ctx = canvas.getContext('2d');
+    const labels = items.map(d => String(d[labelKey] ?? ''));
+    const values = items.map(d => Number(d[countKey] || 0));
+    const n = Math.max(1, values.length);
+    const maxV = Math.max(1, Math.max(...values));
+    const innerW = W - pad.left - pad.right;
+    const innerH = H - pad.top - pad.bottom;
+    const barW = Math.max(4, Math.floor(innerW / n * 0.8));
+    const gap = Math.max(2, Math.floor(innerW / n * 0.2));
+
+    // Axes
+    ctx.fillStyle = '#9aa4b2';
+    ctx.font = '12px system-ui';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    // Y axis ticks (0, 50%, 100%)
+    [0, 0.5, 1].forEach(fr => {
+      const y = pad.top + innerH - fr * innerH;
+      const v = Math.round(fr * maxV);
+      ctx.fillText(String(v), pad.left - 6, y);
+      ctx.strokeStyle = '#263040';
+      ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+    });
+
+    // Bars
+    let x = pad.left + (innerW - (barW + gap) * n + gap) / 2;
+    ctx.fillStyle = '#2f81f7';
+    for (let i = 0; i < n; i++) {
+      const h = Math.round(values[i] / maxV * innerH);
+      const y = pad.top + innerH - h;
+      ctx.fillRect(x, y, barW, h);
+      x += barW + gap;
+    }
+
+    // X labels (rotate if many)
+    ctx.save();
+    ctx.translate(0, 0);
+    ctx.fillStyle = '#e6edf3';
+    const rotate = n > 16;
+    ctx.textAlign = rotate ? 'right' : 'center';
+    ctx.textBaseline = rotate ? 'middle' : 'top';
+    x = pad.left + (innerW - (barW + gap) * n + gap) / 2;
+    for (let i = 0; i < n; i++) {
+      const lx = x + barW / 2;
+      const ly = pad.top + innerH + 6;
+      if (rotate) {
+        ctx.save();
+        ctx.translate(lx, ly + 30);
+        ctx.rotate(-Math.PI / 4);
+        ctx.fillText(labels[i], 0, 0);
+        ctx.restore();
+      } else {
+        ctx.fillText(labels[i], lx, ly);
+      }
+      x += barW + gap;
+    }
+    ctx.restore();
+  }
+
+  function colorForCorr(v) {
+    // Map [-1,1] -> blue-white-red
+    if (v === null || v === undefined) return '#222';
+    const x = Math.max(-1, Math.min(1, Number(v)));
+    if (x >= 0) {
+      const r = 255;
+      const g = Math.round(255 * (1 - x * 0.6));
+      const b = Math.round(255 * (1 - x));
+      return `rgb(${r},${g},${b})`;
+    } else {
+      const t = Math.abs(x);
+      const r = Math.round(255 * (1 - t));
+      const g = Math.round(255 * (1 - t * 0.6));
+      const b = 255;
+      return `rgb(${r},${g},${b})`;
+    }
+  }
+
+  function drawHeatmap(container, columns, matrix) {
+    const n = columns.length;
+    const cell = Math.max(16, Math.min(42, Math.floor(pick(container, 800) / Math.max(8, n))));
+    const pad = { left: 120, top: 24, right: 16, bottom: 120 };
+    const W = pad.left + pad.right + n * cell;
+    const H = pad.top + pad.bottom + n * cell;
+    const canvas = createCanvas(container, W, H);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#0b0f14';
+    ctx.fillRect(0, 0, W, H);
+
+    // Cells
+    for (let r = 0; r < n; r++) {
+      for (let c = 0; c < n; c++) {
+        const v = (matrix[columns[r]] || {})[columns[c]];
+        ctx.fillStyle = colorForCorr(v);
+        ctx.fillRect(pad.left + c * cell, pad.top + r * cell, cell, cell);
+      }
+    }
+    // Grid
+    ctx.strokeStyle = '#263040';
+    for (let i = 0; i <= n; i++) {
+      const y = pad.top + i * cell;
+      ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + n * cell, y); ctx.stroke();
+      const x = pad.left + i * cell;
+      ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, pad.top + n * cell); ctx.stroke();
+    }
+    // Labels
+    ctx.fillStyle = '#e6edf3';
+    ctx.font = '12px system-ui';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (let r = 0; r < n; r++) {
+      const y = pad.top + r * cell + cell / 2;
+      ctx.fillText(columns[r], pad.left - 8, y);
+    }
+    ctx.save();
+    ctx.translate(pad.left, pad.top + n * cell + 8);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (let c = 0; c < n; c++) {
+      const x = c * cell + cell / 2;
+      ctx.fillText(columns[c], x, -8);
+    }
+    ctx.restore();
+
+    // Legend
+    const legend = document.createElement('div');
+    legend.className = 'legend';
+    legend.innerHTML = '<span>-1</span><div class="legend-bar"></div><span>+1</span>';
+    container.appendChild(legend);
+  }
+
   async function fetchJSON(url, opts) {
     const res = await fetch(url, opts);
     const text = await res.text();
@@ -267,7 +418,9 @@
       const topk = Number($('#dist-topk').value || 20);
       const dropna = $('#dist-dropna').checked;
       const container = $('#dist-view');
+      const chart = $('#dist-chart');
       container.innerHTML = '';
+      chart.innerHTML = '';
       if (!id || !col) { container.textContent = 'Dataset/Column을 입력하세요'; return; }
       const url = new URL(`${apiBase}/datasets/${encodeURIComponent(id)}/distribution`);
       url.searchParams.set('column', col);
@@ -279,9 +432,11 @@
         if (data.type === 'numeric') {
           container.appendChild(el('div', { class: 'muted' }, `min=${data.min}, max=${data.max}, bins=${data.bins}, total=${data.total}, na=${data.na_count}`));
           const items = (data.items || []).map(x => ({ label: x.label || `${x.left}~${x.right}`, count: x.count }));
+          drawBarChart(chart, items, 'label', 'count');
           container.appendChild(renderBars(items, 'label', 'count'));
         } else {
           container.appendChild(el('div', { class: 'muted' }, `topk=${data.topk}, total=${data.total}, na=${data.na_count}, unique=${data.unique}`));
+          drawBarChart(chart, (data.items || []).map(x => ({ label: String(x.value ?? ''), count: x.count })), 'label', 'count');
           container.appendChild(renderBars(data.items || [], 'value', 'count'));
         }
       } catch (e) {
@@ -297,13 +452,18 @@
       const method = $('#corr-method').value;
       const limit = Number($('#corr-limit').value || 50000);
       const container = $('#corr-view');
+      const chart = $('#corr-chart');
       container.innerHTML = '';
+      chart.innerHTML = '';
       if (!id) { container.textContent = 'Dataset ID를 입력하세요'; return; }
       const url = new URL(`${apiBase}/datasets/${encodeURIComponent(id)}/corr`);
       url.searchParams.set('method', method);
       if (limit) url.searchParams.set('limit', String(limit));
       try {
         const data = await fetchJSON(url.toString());
+        if ((data.columns || []).length) {
+          drawHeatmap(chart, data.columns, data.matrix || {});
+        }
         container.appendChild(renderMatrix(data.matrix || {}));
       } catch (e) {
         container.textContent = `상관분석 실패: ${e.message}`;

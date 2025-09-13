@@ -22,3 +22,9 @@ th{ background:#0d1420; text-align:left; }
 tbody tr:nth-child(even){ background:#111827; }
 footer{ max-width:1100px; margin:12px auto 40px; padding:0 16px; color:var(--muted); }
 .bar{ height:12px; background:linear-gradient(90deg, var(--accent), #7aa7ff); border-radius:3px; }
+
+/* Charts */
+.chart{ margin-top:10px; overflow:auto; border:1px dashed var(--border); border-radius:6px; padding:8px; }
+.chart canvas{ display:block; max-width:100%; height:auto; }
+.legend{ display:flex; align-items:center; gap:8px; color:var(--muted); font-size:12px; margin-top:6px; }
+.legend-bar{ width:160px; height:10px; background:linear-gradient(90deg, #2b6cb0, #ffffff 50%, #b62424); border-radius:2px; border:1px solid var(--border); }
