@@ -19,6 +19,7 @@
     <main>
       <datalist id="dataset-ids"></datalist>
       <datalist id="columns-suggest"></datalist>
+      <datalist id="model-ids"></datalist>
 
       <section class="card">
         <h2>1) CSV 업로드</h2>
@@ -266,6 +267,38 @@
           <button type="submit">프로파일 조회</button>
         </form>
         <div id="prof-view"></div>
+      </section>
+
+      <section class="card">
+        <h2>17) 모델 학습(Train)</h2>
+        <form id="ml-train-form">
+          <label>Dataset ID: <input type="text" id="ml-train-dataset" list="dataset-ids" required /></label>
+          <label>Target: <input type="text" id="ml-train-target" list="columns-suggest" required /></label>
+          <label>Model:
+            <select id="ml-train-model">
+              <option value="linreg">linreg (회귀)</option>
+              <option value="logreg">logreg (이진/다중 분류)</option>
+              <option value="rf_reg">rf_reg (랜덤포레스트 회귀)</option>
+              <option value="rf_clf">rf_clf (랜덤포레스트 분류)</option>
+            </select>
+          </label>
+          <label>Features(,로 구분/미입력=전체): <input type="text" id="ml-train-features" placeholder="예: f1,f2,f3" /></label>
+          <label>Test Size: <input type="number" id="ml-train-testsize" value="0.2" min="0.05" max="0.9" step="0.05" /></label>
+          <label>Out Model ID(선택): <input type="text" id="ml-train-outid" placeholder="자동 생성" /></label>
+          <button type="submit">학습 실행</button>
+        </form>
+        <div id="ml-train-result" class="muted"></div>
+      </section>
+
+      <section class="card">
+        <h2>18) 예측(Predict)</h2>
+        <form id="ml-predict-form">
+          <label>Model ID: <input type="text" id="ml-predict-model" list="model-ids" required /></label>
+          <label>Dataset ID: <input type="text" id="ml-predict-dataset" list="dataset-ids" required /></label>
+          <label>Out Dataset ID(선택): <input type="text" id="ml-predict-out" placeholder="자동 생성" /></label>
+          <button type="submit">예측 실행</button>
+        </form>
+        <div id="ml-predict-result" class="muted"></div>
       </section>
     </main>
 

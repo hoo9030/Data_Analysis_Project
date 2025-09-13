@@ -2,6 +2,7 @@
   const apiBase = `${window.location.origin}/api`;
   let datasetCache = [];
   const schemaCache = new Map();
+  let modelCache = [];
 
   function $(sel) { return document.querySelector(sel); }
 
@@ -31,6 +32,26 @@
       const data = await fetchJSON(`${apiBase}/datasets`);
       datasetCache = data.items || [];
       updateDatasetIdDatalist();
+    } catch (_) { /* ignore */ }
+  }
+
+  function updateModelIdDatalist() {
+    const dl = $('#model-ids');
+    if (!dl) return;
+    dl.innerHTML = '';
+    (modelCache || []).forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m.id;
+      opt.label = `${m.model} (${m.kind})`;
+      dl.appendChild(opt);
+    });
+  }
+
+  async function refreshModelCache() {
+    try {
+      const data = await fetchJSON(`${apiBase}/ml/models`);
+      modelCache = data.items || [];
+      updateModelIdDatalist();
     } catch (_) { /* ignore */ }
   }
 
@@ -82,11 +103,13 @@
   window.addEventListener('DOMContentLoaded', async () => {
     attach();
     await refreshDatasetCache();
+    await refreshModelCache();
     // Try seeding columns for the currently selected preview id after a brief delay
     setTimeout(() => {
       const pidEl = $('#preview-id');
       if (pidEl && pidEl.value) updateColumnsDatalist(pidEl.value.trim());
     }, 300);
+    // Expose for manual refresh after model training
+    window.__refreshModels = refreshModelCache;
   });
 })();
-

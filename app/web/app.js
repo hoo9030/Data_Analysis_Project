@@ -807,6 +807,55 @@
     });
   }
 
+  function bindML() {
+    const trainForm = document.getElementById('ml-train-form');
+    if (trainForm) trainForm.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const dataset_id = $('#ml-train-dataset').value.trim();
+      const target = $('#ml-train-target').value.trim();
+      const model = $('#ml-train-model').value;
+      const featsStr = $('#ml-train-features').value.trim();
+      const test_size = Number($('#ml-train-testsize').value || 0.2);
+      const outid = $('#ml-train-outid').value.trim();
+      const result = $('#ml-train-result');
+      result.textContent = '학습 중...';
+      if (!dataset_id || !target) { result.textContent = 'Dataset/Target 필요'; return; }
+      const body = { dataset_id, target, model, test_size };
+      if (featsStr) body.features = featsStr.split(',').map(s => s.trim()).filter(Boolean);
+      if (outid) body.model_id = outid;
+      try {
+        const data = await fetchJSON(`${apiBase}/ml/train`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        result.textContent = `완료: model_id=${data.model_id}, metrics=${JSON.stringify(data.metrics)}`;
+        try { await window.__refreshModels?.(); } catch (_) {}
+      } catch (e) {
+        result.textContent = `실패: ${e.message}`;
+      }
+    });
+
+    const predictForm = document.getElementById('ml-predict-form');
+    if (predictForm) predictForm.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const model_id = $('#ml-predict-model').value.trim();
+      const dataset_id = $('#ml-predict-dataset').value.trim();
+      const out_id = $('#ml-predict-out').value.trim();
+      const result = $('#ml-predict-result');
+      result.textContent = '예측 중...';
+      if (!model_id || !dataset_id) { result.textContent = 'Model/Dataset 필요'; return; }
+      const body = { dataset_id };
+      if (out_id) body.out_id = out_id;
+      try {
+        const data = await fetchJSON(`${apiBase}/ml/${encodeURIComponent(model_id)}/predict_dataset`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        result.textContent = `완료: ${data.dataset_id} (rows=${data.rows})`;
+        await refreshList();
+        $('#preview-id').value = data.dataset_id;
+        $('#describe-id').value = data.dataset_id;
+        $('#nulls-id').value = data.dataset_id;
+      } catch (e) {
+        result.textContent = `실패: ${e.message}`;
+      }
+    });
+  }
+
   window.addEventListener('DOMContentLoaded', async () => {
     bindUpload();
     bindPreview();
@@ -824,6 +873,7 @@
     bindSortLimit();
     bindDedup();
     bindProfile();
+    bindML();
     await loadInfo();
     await refreshList();
     const syncIds = () => {
