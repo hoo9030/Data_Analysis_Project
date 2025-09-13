@@ -84,7 +84,7 @@
 
   function attach() {
     // When dataset IDs change on forms that require a column, update column suggestions
-    const idInputs = ['#dist-id', '#cast-source', '#fillna-source', '#drop-source', '#rename-source'];
+    const idInputs = ['#dist-id', '#cast-source', '#fillna-source', '#drop-source', '#rename-source', '#ml-train-dataset'];
     idInputs.forEach(sel => {
       const el = $(sel);
       if (el) el.addEventListener('change', (e) => updateColumnsDatalist(e.target.value.trim()));

@@ -284,6 +284,8 @@
           </label>
           <label>Features(,로 구분/미입력=전체): <input type="text" id="ml-train-features" placeholder="예: f1,f2,f3" /></label>
           <label>Test Size: <input type="number" id="ml-train-testsize" value="0.2" min="0.05" max="0.9" step="0.05" /></label>
+          <label>Sample Rows(선택): <input type="number" id="ml-train-samplerows" placeholder="예: 10000" min="10" /></label>
+          <label>Sample Frac(선택): <input type="number" id="ml-train-samplefrac" placeholder="0~1" min="0" max="1" step="0.05" /></label>
           <label>Out Model ID(선택): <input type="text" id="ml-train-outid" placeholder="자동 생성" /></label>
           <button type="submit">학습 실행</button>
         </form>
@@ -295,10 +297,19 @@
         <form id="ml-predict-form">
           <label>Model ID: <input type="text" id="ml-predict-model" list="model-ids" required /></label>
           <label>Dataset ID: <input type="text" id="ml-predict-dataset" list="dataset-ids" required /></label>
+          <label><input type="checkbox" id="ml-predict-proba" /> 확률 포함(분류)</label>
           <label>Out Dataset ID(선택): <input type="text" id="ml-predict-out" placeholder="자동 생성" /></label>
           <button type="submit">예측 실행</button>
         </form>
         <div id="ml-predict-result" class="muted"></div>
+      </section>
+
+      <section class="card">
+        <h2>19) 모델 목록</h2>
+        <div class="toolbar">
+          <button id="ml-refresh-models">새로고침</button>
+        </div>
+        <div id="ml-models-list"></div>
       </section>
     </main>
 

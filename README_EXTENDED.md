@@ -23,3 +23,15 @@ Extended APIs for Data Analysis Studio
 - GET `/api/datasets/{id}/profile?sample=10000`
   - Per-column profile: dtype, non_null, nulls, distinct, top value/count, numeric stats.
 
+ML APIs
+
+- POST `/api/ml/train`
+  - Body: `{ "dataset_id": "id", "target": "y", "model": "linreg|logreg|rf_reg|rf_clf", "features": ["f1","f2"], "test_size": 0.2, "model_id": "(optional)", "sample_rows": 10000, "sample_frac": 0.5 }`
+  - Trains model with preprocessing (numeric: impute+scale, categorical: impute+one-hot). Returns metrics and model_id.
+
+- POST `/api/ml/{model_id}/predict_dataset`
+  - Body: `{ "dataset_id": "id", "out_id": "(optional)", "proba": true }`
+  - Runs prediction and writes a new dataset with `prediction` (and optionally `prediction_proba`).
+
+- GET `/api/ml/models` → `{ items: [...], count }`
+- DELETE `/api/ml/models/{id}` → delete a saved model.

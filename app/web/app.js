@@ -816,12 +816,16 @@
       const model = $('#ml-train-model').value;
       const featsStr = $('#ml-train-features').value.trim();
       const test_size = Number($('#ml-train-testsize').value || 0.2);
+      const sample_rows_str = $('#ml-train-samplerows').value.trim();
+      const sample_frac_str = $('#ml-train-samplefrac').value.trim();
       const outid = $('#ml-train-outid').value.trim();
       const result = $('#ml-train-result');
       result.textContent = '학습 중...';
       if (!dataset_id || !target) { result.textContent = 'Dataset/Target 필요'; return; }
       const body = { dataset_id, target, model, test_size };
       if (featsStr) body.features = featsStr.split(',').map(s => s.trim()).filter(Boolean);
+      if (sample_rows_str) body.sample_rows = Number(sample_rows_str);
+      if (sample_frac_str) body.sample_frac = Number(sample_frac_str);
       if (outid) body.model_id = outid;
       try {
         const data = await fetchJSON(`${apiBase}/ml/train`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -837,11 +841,12 @@
       ev.preventDefault();
       const model_id = $('#ml-predict-model').value.trim();
       const dataset_id = $('#ml-predict-dataset').value.trim();
+      const proba = $('#ml-predict-proba').checked;
       const out_id = $('#ml-predict-out').value.trim();
       const result = $('#ml-predict-result');
       result.textContent = '예측 중...';
       if (!model_id || !dataset_id) { result.textContent = 'Model/Dataset 필요'; return; }
-      const body = { dataset_id };
+      const body = { dataset_id, proba };
       if (out_id) body.out_id = out_id;
       try {
         const data = await fetchJSON(`${apiBase}/ml/${encodeURIComponent(model_id)}/predict_dataset`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -852,6 +857,67 @@
         $('#nulls-id').value = data.dataset_id;
       } catch (e) {
         result.textContent = `실패: ${e.message}`;
+      }
+    });
+  }
+
+  async function loadModels() {
+    const container = document.getElementById('ml-models-list');
+    if (!container) return;
+    container.innerHTML = '';
+    try {
+      const data = await fetchJSON(`${apiBase}/ml/models`);
+      const items = data.items || [];
+      const table = el('table', { class: 'table' });
+      const thead = el('thead');
+      const trh = el('tr');
+      ['id','model','kind','dataset_id','created_at','metrics','actions'].forEach(h => trh.appendChild(el('th', {}, h)));
+      thead.appendChild(trh);
+      const tbody = el('tbody');
+      items.forEach(m => {
+        const tr = el('tr', { 'data-id': m.id });
+        tr.appendChild(el('td', {}, m.id));
+        tr.appendChild(el('td', {}, m.model));
+        tr.appendChild(el('td', {}, m.kind));
+        tr.appendChild(el('td', {}, m.dataset_id));
+        tr.appendChild(el('td', {}, m.created_at));
+        tr.appendChild(el('td', {}, JSON.stringify(m.metrics || {})));
+        const actions = el('td');
+        actions.append(
+          el('button', { class: 'btn-danger', 'data-act': 'delete' }, 'Delete')
+        );
+        tr.appendChild(actions);
+        tbody.appendChild(tr);
+      });
+      table.appendChild(thead);
+      table.appendChild(tbody);
+      container.appendChild(table);
+    } catch (e) {
+      container.textContent = `모델 목록 실패: ${e.message}`;
+    }
+  }
+
+  function bindModelsToolbar() {
+    const btn = document.getElementById('ml-refresh-models');
+    if (btn) btn.addEventListener('click', async () => { await loadModels(); try { await window.__refreshModels?.(); } catch (_) {} });
+    const container = document.getElementById('ml-models-list');
+    if (container) container.addEventListener('click', async (ev) => {
+      const t = ev.target;
+      if (!(t instanceof HTMLElement)) return;
+      const act = t.getAttribute('data-act');
+      if (!act) return;
+      const tr = t.closest('tr');
+      const id = tr?.getAttribute('data-id');
+      if (!id) return;
+      if (act === 'delete') {
+        if (!confirm(`정말 삭제할까요?\n${id}`)) return;
+        try {
+          await fetchJSON(`${apiBase}/ml/models/${encodeURIComponent(id)}`, { method: 'DELETE' });
+          await loadModels();
+          try { await window.__refreshModels?.(); } catch (_) {}
+        } catch (e) {
+          alert(`삭제 실패: ${e.message}`);
+        }
       }
     });
   }
@@ -874,13 +940,20 @@
     bindDedup();
     bindProfile();
     bindML();
+    bindModelsToolbar();
     await loadInfo();
     await refreshList();
+    await loadModels();
     const syncIds = () => {
       $('#dist-id').value = $('#preview-id').value;
       $('#corr-id').value = $('#preview-id').value;
       $('#nulls-id').value = $('#preview-id').value;
       $('#cast-source').value = $('#preview-id').value;
+      const pid = $('#preview-id').value;
+      const mlpd = document.getElementById('ml-predict-dataset');
+      const mltd = document.getElementById('ml-train-dataset');
+      if (mlpd) mlpd.value = pid;
+      if (mltd) mltd.value = pid;
     };
     setTimeout(syncIds, 200);
   });

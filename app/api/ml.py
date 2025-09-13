@@ -108,6 +108,8 @@ class TrainRequest(BaseModel):
     test_size: float = 0.2
     random_state: Optional[int] = 42
     model_id: Optional[str] = None
+    sample_rows: Optional[int] = Field(None, description="Train on first N rows (optional)")
+    sample_frac: Optional[float] = Field(None, description="Random fraction 0-1 (optional)")
 
 
 @router.post("/train")
@@ -116,6 +118,7 @@ def train_model(req: TrainRequest) -> Dict[str, Any]:
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Dataset not found")
     try:
+        # Read whole dataset first for flexibility (sampling applied after load)
         df = pd.read_csv(path)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
@@ -128,7 +131,19 @@ def train_model(req: TrainRequest) -> Dict[str, Any]:
     if not features:
         raise HTTPException(status_code=400, detail="No valid features")
 
-    df2 = df.dropna(subset=[req.target])
+    # Optional sampling
+    df2 = df
+    if req.sample_rows is not None and int(req.sample_rows) > 0:
+        df2 = df2.head(int(req.sample_rows))
+    elif req.sample_frac is not None:
+        try:
+            frac = max(0.0, min(1.0, float(req.sample_frac)))
+            if frac > 0 and frac < 1:
+                df2 = df2.sample(frac=frac, random_state=req.random_state)
+        except Exception:
+            pass
+    # Drop NA target
+    df2 = df2.dropna(subset=[req.target])
     X = df2[features]
     y = df2[req.target]
 
@@ -310,4 +325,3 @@ def delete_model(model_id: str) -> Dict[str, Any]:
     if not existed:
         raise HTTPException(status_code=404, detail="Model not found")
     return {"status": "deleted", "model_id": model_id}
-
