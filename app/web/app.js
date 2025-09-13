@@ -5,7 +5,10 @@
   function el(tag, attrs = {}, ...children) {
     const e = document.createElement(tag);
     Object.entries(attrs || {}).forEach(([k, v]) => {
-      if (k === 'class') e.className = v; else if (k === 'html') e.innerHTML = v; else e.setAttribute(k, v);
+      if (k === 'class') e.className = v;
+      else if (k === 'html') e.innerHTML = v;
+      else if (k === 'style') e.setAttribute('style', v);
+      else e.setAttribute(k, v);
     });
     children.flat().forEach(c => e.appendChild(typeof c === 'string' ? document.createTextNode(c) : c));
     return e;
@@ -29,11 +32,10 @@
   }
 
   function renderMatrix(obj) {
-    // obj: { rowName: { col: value } }
     const cols = new Set();
-    Object.values(obj).forEach(r => Object.keys(r || {}).forEach(k => cols.add(k)));
+    Object.values(obj || {}).forEach(r => Object.keys(r || {}).forEach(k => cols.add(k)));
     const columns = ['metric', ...Array.from(cols)];
-    const rows = Object.entries(obj).map(([name, r]) => ({ metric: name, ...r }));
+    const rows = Object.entries(obj || {}).map(([name, r]) => ({ metric: name, ...r }));
     return renderTable(columns, rows);
   }
 
@@ -57,7 +59,6 @@
   }
 
   function createCanvas(container, width, height) {
-    // Clear container
     container.innerHTML = '';
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(320, width);
@@ -65,7 +66,6 @@
     container.appendChild(canvas);
     return canvas;
   }
-
   function pick(container, fallback) {
     const w = container.getBoundingClientRect().width;
     return Math.max(320, Math.floor(w || fallback));
@@ -80,18 +80,17 @@
     const labels = items.map(d => String(d[labelKey] ?? ''));
     const values = items.map(d => Number(d[countKey] || 0));
     const n = Math.max(1, values.length);
-    const maxV = Math.max(1, Math.max(...values));
+    const maxV = Math.max(1, Math.max(...values, 1));
     const innerW = W - pad.left - pad.right;
     const innerH = H - pad.top - pad.bottom;
     const barW = Math.max(4, Math.floor(innerW / n * 0.8));
     const gap = Math.max(2, Math.floor(innerW / n * 0.2));
 
-    // Axes
+    // Axes grid and ticks
     ctx.fillStyle = '#9aa4b2';
     ctx.font = '12px system-ui';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
-    // Y axis ticks (0, 50%, 100%)
     [0, 0.5, 1].forEach(fr => {
       const y = pad.top + innerH - fr * innerH;
       const v = Math.round(fr * maxV);
@@ -100,21 +99,17 @@
       ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
     });
 
-    // Bars and hitboxes for tooltip
+    // Bars
     let x = pad.left + (innerW - (barW + gap) * n + gap) / 2;
     ctx.fillStyle = '#2f81f7';
-    const hits = [];
     for (let i = 0; i < n; i++) {
       const h = Math.round(values[i] / maxV * innerH);
       const y = pad.top + innerH - h;
       ctx.fillRect(x, y, barW, h);
-      hits.push({ x, y, w: barW, h, label: labels[i], value: values[i] });
       x += barW + gap;
     }
 
-    // X labels (rotate if many)
-    ctx.save();
-    ctx.translate(0, 0);
+    // X labels
     ctx.fillStyle = '#e6edf3';
     const rotate = n > 16;
     ctx.textAlign = rotate ? 'right' : 'center';
@@ -134,32 +129,10 @@
       }
       x += barW + gap;
     }
-    ctx.restore();
-
-    // Tooltip wiring
-    const tip = ensureTooltip(container);
-    function toCanvasXY(ev) {
-      const rect = canvas.getBoundingClientRect();
-      const ox = (ev.clientX - rect.left) * (canvas.width / rect.width);
-      const oy = (ev.clientY - rect.top) * (canvas.height / rect.height);
-      return { x: ox, y: oy };
-    }
-    canvas.onmouseleave = () => hideTooltip(tip);
-    canvas.onmousemove = (ev) => {
-      const p = toCanvasXY(ev);
-      for (const hb of hits) {
-        if (p.x >= hb.x && p.x <= hb.x + hb.w && p.y >= hb.y && p.y <= hb.y + hb.h) {
-          showTooltip(tip, ev, `${escapeHtml(String(hb.label))}<br><b>${hb.value}</b>`);
-          return;
-        }
-      }
-      hideTooltip(tip);
-    };
   }
 
   function colorForCorr(v) {
-    // Map [-1,1] -> blue-white-red
-    if (v === null || v === undefined) return '#222';
+    if (v === null || v === undefined || Number.isNaN(v)) return '#222';
     const x = Math.max(-1, Math.min(1, Number(v)));
     if (x >= 0) {
       const r = 255;
@@ -227,55 +200,10 @@
     legend.className = 'legend';
     legend.innerHTML = '<span>-1</span><div class="legend-bar"></div><span>+1</span>';
     container.appendChild(legend);
-
-    // Tooltip wiring
-    const tip = ensureTooltip(container);
-    const canvasRectToXY = (ev) => {
-      const rect = canvas.getBoundingClientRect();
-      const ox = (ev.clientX - rect.left) * (canvas.width / rect.width);
-      const oy = (ev.clientY - rect.top) * (canvas.height / rect.height);
-      return { x: ox, y: oy };
-    };
-    canvas.onmouseleave = () => hideTooltip(tip);
-    canvas.onmousemove = (ev) => {
-      const p = canvasRectToXY(ev);
-      const rx = p.x - pad.left;
-      const ry = p.y - pad.top;
-      if (rx < 0 || ry < 0 || rx >= n * cell || ry >= n * cell) { hideTooltip(tip); return; }
-      const c = Math.floor(rx / cell);
-      const r = Math.floor(ry / cell);
-      const col = columns[c];
-      const row = columns[r];
-      const v = (matrix[row] || {})[col];
-      const vstr = (v === null || v === undefined || Number.isNaN(v)) ? 'NA' : Number(v).toFixed(3);
-      showTooltip(tip, ev, `${escapeHtml(row)} × ${escapeHtml(col)}<br><b>${vstr}</b>`);
-    };
   }
 
-  // Tooltip helpers
-  function ensureTooltip(container) {
-    let tip = container.querySelector('.tooltip');
-    if (!tip) {
-      tip = document.createElement('div');
-      tip.className = 'tooltip';
-      container.appendChild(tip);
-    }
-    return tip;
-  }
-  function showTooltip(tip, mouseEvent, html) {
-    tip.innerHTML = html;
-    tip.style.display = 'block';
-    const rect = tip.parentElement.getBoundingClientRect();
-    const x = mouseEvent.clientX - rect.left + 10;
-    const y = mouseEvent.clientY - rect.top + 10;
-    tip.style.left = `${x}px`;
-    tip.style.top = `${y}px`;
-  }
-  function hideTooltip(tip) {
-    tip.style.display = 'none';
-  }
   function escapeHtml(s) {
-    return s.replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
+    return String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
   }
 
   async function fetchJSON(url, opts) {
@@ -331,7 +259,6 @@
       const data = await fetchJSON(`${apiBase}/datasets`);
       const items = (data.items || []);
       container.appendChild(renderDatasetList(items));
-      // Autofill last id to preview/describe inputs
       if (items.length) {
         const lastId = items[0].id;
         $('#preview-id').value = lastId;
@@ -399,7 +326,6 @@
 
   function bindToolbar() {
     $('#refresh-list').addEventListener('click', refreshList);
-    // Delegate actions on dataset rows
     $('#datasets-list').addEventListener('click', async (ev) => {
       const t = ev.target;
       if (!(t instanceof HTMLElement)) return;
@@ -467,9 +393,7 @@
           body: JSON.stringify(body),
         });
         result.textContent = `완료: ${data.dataset_id} (before_nulls=${data.before_nulls}, after_nulls=${data.after_nulls}, new_nulls=${data.coerced_new_nulls})`;
-        // Refresh list to show the new dataset
         await refreshList();
-        // Autofill ids for convenience
         $('#preview-id').value = data.dataset_id;
         $('#describe-id').value = data.dataset_id;
         $('#nulls-id').value = data.dataset_id;
@@ -507,7 +431,8 @@
           container.appendChild(renderBars(items, 'label', 'count'));
         } else {
           container.appendChild(el('div', { class: 'muted' }, `topk=${data.topk}, total=${data.total}, na=${data.na_count}, unique=${data.unique}`));
-          drawBarChart(chart, (data.items || []).map(x => ({ label: String(x.value ?? ''), count: x.count })), 'label', 'count');
+          const items = (data.items || []).map(x => ({ label: String(x.value ?? ''), count: x.count }));
+          drawBarChart(chart, items, 'label', 'count');
           container.appendChild(renderBars(data.items || [], 'value', 'count'));
         }
       } catch (e) {
@@ -679,14 +604,13 @@
     bindPreprocess();
     await loadInfo();
     await refreshList();
-    // Autofill IDs to new sections when list refresh set preview/describe IDs
     const syncIds = () => {
       $('#dist-id').value = $('#preview-id').value;
       $('#corr-id').value = $('#preview-id').value;
       $('#nulls-id').value = $('#preview-id').value;
       $('#cast-source').value = $('#preview-id').value;
     };
-    // Initial sync after brief delay
     setTimeout(syncIds, 200);
   });
 })();
+

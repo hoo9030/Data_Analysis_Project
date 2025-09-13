@@ -52,7 +52,7 @@
         <h2>4) 요약 통계</h2>
         <form id="describe-form">
           <label>Dataset ID: <input type="text" id="describe-id" list="dataset-ids" required /></label>
-          <label>샘플 행 제한: <input type="number" id="describe-limit" value="5000" min="10" max="200000" /></label>
+          <label>샘플 제한: <input type="number" id="describe-limit" value="5000" min="10" max="200000" /></label>
           <label>전체 컬럼 포함: <input type="checkbox" id="describe-all" checked /></label>
           <button type="submit">요약 보기</button>
         </form>
@@ -63,7 +63,7 @@
         <h2>5) 결측치 현황</h2>
         <form id="nulls-form">
           <label>Dataset ID: <input type="text" id="nulls-id" list="dataset-ids" required /></label>
-          <label>행 제한(옵션): <input type="number" id="nulls-limit" placeholder="전체" min="1" /></label>
+          <label>제한(옵션): <input type="number" id="nulls-limit" placeholder="전체" min="1" /></label>
           <button type="submit">결측치 보기</button>
         </form>
         <div id="nulls-table"></div>
@@ -84,7 +84,7 @@
               <option value="category">category</option>
             </select>
           </label>
-          <label>Out ID(옵션): <input type="text" id="cast-out" placeholder="자동 생성" /></label>
+          <label>Out ID(선택): <input type="text" id="cast-out" placeholder="자동 생성" /></label>
           <label><input type="checkbox" id="cast-strict" /> strict 모드(변환 실패 시 에러)</label>
           <button type="submit">변환 실행</button>
         </form>
@@ -96,8 +96,8 @@
         <form id="dist-form">
           <label>Dataset ID: <input type="text" id="dist-id" list="dataset-ids" required /></label>
           <label>Column: <input type="text" id="dist-col" list="columns-suggest" required /></label>
-          <label>Bins(숫자형): <input type="number" id="dist-bins" value="20" min="1" max="200" /></label>
-          <label>TopK(문자형): <input type="number" id="dist-topk" value="20" min="1" max="200" /></label>
+          <label>Bins(숫자): <input type="number" id="dist-bins" value="20" min="1" max="200" /></label>
+          <label>TopK(문자): <input type="number" id="dist-topk" value="20" min="1" max="200" /></label>
           <label><input type="checkbox" id="dist-dropna" checked /> 결측치 제외</label>
           <button type="submit">분포 계산</button>
         </form>
@@ -116,7 +116,7 @@
               <option value="kendall">kendall</option>
             </select>
           </label>
-          <label>행 제한: <input type="number" id="corr-limit" value="50000" min="100" /></label>
+          <label>제한: <input type="number" id="corr-limit" value="50000" min="100" /></label>
           <button type="submit">상관분석</button>
         </form>
         <div id="corr-chart" class="chart"></div>
@@ -146,7 +146,7 @@
         <h3>결측치 채우기 (fillna)</h3>
         <form id="fillna-form">
           <label>Source ID: <input type="text" id="fillna-source" list="dataset-ids" required /></label>
-          <label>Columns(옵션, 쉼표): <input type="text" id="fillna-cols" placeholder="미지정 시 전체" /></label>
+          <label>Columns(선택, 쉼표): <input type="text" id="fillna-cols" placeholder="미입력시 전체" /></label>
           <label>Strategy:
             <select id="fillna-strategy">
               <option value="value" selected>value</option>
@@ -156,7 +156,7 @@
             </select>
           </label>
           <label>Value(Strategy=value일 때): <input type="text" id="fillna-value" placeholder="예: 0 또는 'N/A'" /></label>
-          <label>Out ID(옵션): <input type="text" id="fillna-out" placeholder="자동 생성" /></label>
+          <label>Out ID(선택): <input type="text" id="fillna-out" placeholder="자동 생성" /></label>
           <button type="submit">실행</button>
         </form>
         <div id="fillna-result" class="muted"></div>
@@ -165,7 +165,7 @@
         <form id="drop-form">
           <label>Source ID: <input type="text" id="drop-source" list="dataset-ids" required /></label>
           <label>Columns(쉼표): <input type="text" id="drop-cols" required placeholder="예: col1,col2" /></label>
-          <label>Out ID(옵션): <input type="text" id="drop-out" placeholder="자동 생성" /></label>
+          <label>Out ID(선택): <input type="text" id="drop-out" placeholder="자동 생성" /></label>
           <button type="submit">실행</button>
         </form>
         <div id="drop-result" class="muted"></div>
@@ -174,7 +174,7 @@
         <form id="rename-form">
           <label>Source ID: <input type="text" id="rename-source" list="dataset-ids" required /></label>
           <label>Mapping(쉼표, 콜론): <input type="text" id="rename-mapping" placeholder="old1:new1,old2:new2" required /></label>
-          <label>Out ID(옵션): <input type="text" id="rename-out" placeholder="자동 생성" /></label>
+          <label>Out ID(선택): <input type="text" id="rename-out" placeholder="자동 생성" /></label>
           <button type="submit">실행</button>
         </form>
         <div id="rename-result" class="muted"></div>
@@ -182,10 +182,11 @@
     </main>
 
     <footer>
-      <span class="muted">UI는 단순 데모용입니다. 대용량 처리/보안은 서버에서 관리됩니다.</span>
+      <span class="muted">UI는 단순 데모용입니다. 대용량 처리/보안은 서버 측에서 관리됩니다.</span>
     </footer>
 
     <script src="./app.js"></script>
     <script src="./suggest.js"></script>
   </body>
   </html>
+
